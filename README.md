@@ -3,19 +3,13 @@ A PyTorch + Triton implementation of the GPT-OSS-20B architecture focused on eff
 
 ## Setup Instructions
 
-### Remote Setup
+### 1. Remote Setup
 
 - Rent a GPU instance from a provider such as Vast.ai.  
 - Start your instance, add your SSH public key, and copy one of the SSH connection commands provided.  
 - Connect via SSH using your preferred code editor (e.g., VS Code or Cursor):  
   - In VS Code or Cursor, use the option to **Connect to Host...** and paste the SSH command.  
 - Once connected to the remote instance, follow the setup steps below as you would on a local machine.
-
----
-
-### 1. Fork & Clone the Repository
-
-_(Steps assumed to be self-explanatory)_
 
 ---
 
