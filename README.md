@@ -38,12 +38,6 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-### 3. Login to Hugging Face
-
-```bash
-huggingface-cli login
-```
-
 ### 4. Download the Original Checkpoint
 
 ```bash
