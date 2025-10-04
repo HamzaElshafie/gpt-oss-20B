@@ -32,23 +32,19 @@ source ~/miniconda3/bin/activate
 conda init --all
 ```
 
-Install Python dependencies:
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
----
-
-### Login to Hugging Face
+### 3. Login to Hugging Face
 
 ```bash
 huggingface-cli login
 ```
 
----
-
-### Download the Original Checkpoint
+### 4. Download the Original Checkpoint
 
 ```bash
 huggingface-cli download openai/gpt-oss-20b \
@@ -56,9 +52,7 @@ huggingface-cli download openai/gpt-oss-20b \
   --local-dir gpt-oss-20b/
 ```
 
----
-
-### Download Tokenizer Files
+### 5. Download Tokenizer Files
 
 ```bash
 huggingface-cli download openai/gpt-oss-20b \
