@@ -25,3 +25,28 @@ class ModelArgs:
     rope_scaling_factor: float = 32.0
     rope_ntk_alpha: float = 1.0
     rope_ntk_beta: float = 32.0
+
+    class RMSNorm(nn.Module):
+        def __init__(self, hidden_size: int, eps: float, device: torch.device | None = None):
+            """See RMSNorm paper https://arxiv.org/pdf/1910.07467
+            
+            Formula: 
+                    RMSNorm(a) = (a / RMS(a)) * scale 
+                    where RMS(a) = sqrt(mean(x^2) + eps)
+                    mean is across the model `hidden_size` dimension
+            """
+            super().__init__()
+            self.eps = eps
+            self.hidden_size = hidden_size
+            self.scale = nn.Parameter(torch.ones(hidden_size))
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            # Shape (Batch, Seq_len, hidden_size)
+            assert x.shape[-1] == self.hidden_size
+            # Cast to FP32 for numerical stability
+            t, dtype = x.float(), x.dtype
+            # Mathematically, x/sqrt(v) can be written as x * 1/sqrt(v)
+            # Keepdim=True makes shape (Batch, Seq_len, 1) --> which will be broadcasted later back to (Batch, Seq_len, hidden_size)
+            t = t * torch.rsqrt(torch.mean(t**2, dim=-1, keepdim=True) + self.eps) # Keepdim=True makes shape
+            # Shape: (Batch, Seq_len, hidden_size)
+            return (t * self.scale).to(dtype)
