@@ -1,10 +1,12 @@
-# gpt-oss-20B
+# GPT-OSS-20B
 A PyTorch + Triton implementation of the GPT-OSS-20B architecture focused on efficient inference. All components are coded from scratch: RoPE with YaRN, RMSNorm, SwiGLU with clamping and residual connection, Mixture-of-Experts (MoE), plus a Triton FlashAttention V2 algorithm with learned sinks, banded attention, and GQA, and KV-cache.
 
 ## Contents
 
 1. [Setup Instructions](#1-setup-instructions)  
-2. [Original Rotary Position Embedding (RoPE)](#2-original-rotary-position-embedding-rope)
+2. [Rotary Position Embedding (RoPE)](#2-rotary-position-embedding-rope)  
+&nbsp;&nbsp;&nbsp;&nbsp;2.1 [Original RoPE](#21-original-rope)  
+&nbsp;&nbsp;&nbsp;&nbsp;2.2 [Position Interpolation](#22-position-interpolation)
 
 ## 1. Setup Instructions
 
@@ -57,81 +59,125 @@ huggingface-cli download openai/gpt-oss-20b \
   --local-dir gpt-oss-20b/
 ```
 
-## 2. Original Rotary Position Embedding (RoPE)
+## 2. Rotary Position Embedding (RoPE)
+Rotary Position Embedding (RoPE) is an effective position-encoding technique which was first introduced in [Su et al. 2021](https://arxiv.org/pdf/2104.09864). Due to its simplicity and effictivness has since become the de facto for modern LLMs including Llama 2, 3 [Grattafiori, Dubey, et al. 2024](https://arxiv.org/pdf/2407.21783), Mistral, Gemma-2 and other open source models. While the original method proved to be effective, models failed faced a crucial limitation of not being able to maintain quaility while processing sequences longer than their trained context. Other methods have been proposed which I am going to go through in this section until we reach the [YaRN](https://arxiv.org/pdf/2309.00071) extenstion which I use in this repo following OpenAI's original implementation 
+
+Other great in-depth resources (Most of the visuals in this documentation is taken from these resources so credits to all authors
+Sources: 
+- [How LLMs Scaled from 512 to 2M context: A Technical Deep Dive](https://amaarora.github.io/posts/2025-09-21-rope-context-extension.html#roformer-enhanced-transformer-with-rotary-position-embedding-rope)
+- [Inside RoPE: Rotary Magic into Position Embeddings](https://learnopencv.com/rope-position-embeddings/)
+- [Extending the RoPE](https://blog.eleuther.ai/yarn/#rotary-position-embedding)
+- [Extending Context is Hard](https://kaiokendev.github.io/context#a-bigger-problem)
+
+
+## 2.1 Original RoPE
 
 ### Core Idea
 
-Attention scores use dot products. We want the score between token $$m$$ and token $$n$$ to depend on the distance $$(n - m)$$ rather than on absolute $$m$$ and $$n$$. RoPE achieves this by rotating each two dimensional slice of the query and key vectors by angles that grow linearly with position.
+Attention scores use dot products. We want the score between token $$m$$ and token $$n$$ to depend on the distance $$(n - m)$$ rather than on absolute $$m$$ and $$n$$. RoPE achieves this by rotating each two-dimensional slice of the query and key vectors by angles that grow linearly with position.
 
 ### Mathematical Definition
 
-For a head with dimension size $$d$$, the final axis is divided into $$\frac{d}{2}$$ pairs. Each pair is indexed by $$i \in [0,\, \frac{d}{2}-1]$$. The base value, as originally defined in the paper, is $$10000.0$$. In the code for this repository it is $$150000.0$$, following OpenAI’s official implementation. The dimension $$d$$ must be even; otherwise, one component would remain unpaired.
-
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/8ff44262-8e66-47e0-90ce-6a4852d99ee9" alt="Image 2" width="650">
-</p>
-
-The angles for each pair are defined as $$\theta_i = \text{base}^{-\frac{2i}{d}}$$, and the angle at position $$m$$ is $$m\theta_i$$. Equivalently, we can express this as $$m / \mathrm{inv\_freq}_i$$, where $$\mathrm{inv\_freq}_i = \text{base}^{\frac{2i}{d}}$$. Both forms describe the same geometric progression of frequencies.
-
-In the two dimensional case, the rotation applied to each vector at position $$m$$ is  
+We require the attention score to depend only on relative distance:  
 
 $$
-x'_m = R(m\theta_i)x_m, \quad \text{where} \quad
-R(m\theta_i) =
-\begin{bmatrix}
-\cos(m\theta_i) & -\sin(m\theta_i)\\
-\sin(m\theta_i) & \cos(m\theta_i)
-\end{bmatrix},
-\quad x_m \in \mathbb{R}^2.
+f_q(x_m, m)^{\top} f_k(x_n, n) = g(x_m, x_n, m-n)
 $$
 
-For a full $$d$$-dimensional head, the complete transformation is a block-diagonal matrix composed of all such $$2\times2$$ rotations:
+A uniform construction that satisfies this is:  
 
 $$
-R(m\Theta_d) = \mathrm{diag}\big(R(m\theta_0),\,R(m\theta_1),\,\dots,\,R(m\theta_{d/2-1})\big).
+f_W(x_m, m, \theta_d) =
+\begin{pmatrix}
+\cos m\theta_1 & -\sin m\theta_1 & 0 & 0 & \cdots & 0 & 0\\
+\sin m\theta_1 & \ \cos m\theta_1 & 0 & 0 & \cdots & 0 & 0\\
+0 & 0 & \cos m\theta_2 & -\sin m\theta_2 & \cdots & 0 & 0\\
+0 & 0 & \sin m\theta_2 & \ \cos m\theta_2 & \cdots & 0 & 0\\
+\vdots & \vdots & \vdots & \vdots & \ddots & \vdots & \vdots\\
+0 & 0 & 0 & 0 & \cdots & \cos m\theta_{\ell} & -\sin m\theta_{\ell}\\
+0 & 0 & 0 & 0 & \cdots & \sin m\theta_{\ell} & \ \cos m\theta_{\ell}
+\end{pmatrix} W_q x_m,
+\qquad f_q = f_{W_q},\ f_k = f_{W_k}.
 $$
 
-Each block corresponds to one frequency pair, giving every subspace its own independent rotation rate.
+Here the per-pair angles follow the RoPE schedule $$\theta_i = b^{-2i/d}$$ with $$b = 10000$$ and $$i=0,\dots,\frac{d}{2}-1$$ across a head of dimension $$d$$.  
+In this repo we set $$b=150000$$ (matching OpenAI’s implementation). The head dimension $$d$$ must be even so every pair can form a $$2\times2$$ rotation block. Later, extensions will modify RoPE by changing $$f$$ into $$f’$$ via simple functions $$g$$ and $$h$$:
+
+$$
+f’_W(x_m, m, \theta_d) = f_W\big(x_m,\ g(m),\ h(\theta_d)\big)
+$$
 
 ### Intuitive Explanation
 
-This formula defines a geometric progression of frequencies across all pairs. Small values of $$i$$ give large $$\theta_i$$, resulting in fast rotating clocks with very short wavelengths that capture fine local variations. Large $$i$$ values give small $$\theta_i$$, producing slow rotating clocks with long wavelengths that encode long range structure.
-
-The wavelength of pair $$i$$, measured in tokens, is $$\lambda_i = \frac{2\pi}{\theta_i}$$. This quantity describes how many tokens it takes for that rotational “hand” to complete one full revolution. In essence, each pair corresponds to one time scale of the position encoding spectrum.
+The schedule $$\theta_i=b^{-2i/d}$$ creates a geometric progression of frequencies across the $$\ell=d/2$$ pairs. Small $$i$$ gives large $$\theta_i$$ (fast “clocks”) with short wavelengths for very local detail; large $$i$$ gives small $$\theta_i$$ (slow “clocks”) with long wavelengths for long-range structure. The wavelength in tokens for pair $$i$$ is $$\lambda_i = \frac{2\pi}{\theta_i}$$, i.e., how many tokens it takes that pair’s “clock hand” to complete one full revolution.
 
 ### Dimensional Trade-offs
 
-Increasing $$d$$ increases the number of pairs $$i$$, and thus the number of clocks available to encode positional information. It also reduces the gaps between adjacent frequencies, providing finer and smoother coverage of scales. However, this comes at the cost of higher memory use, more parameters, and additional floating point operations per token. Smaller $$d$$ values are cheaper but less expressive, making them suitable for edge or lightweight models where efficiency outweighs positional granularity.
+Increasing $$d$$ gives more pairs (more clocks) and finer coverage—the gaps between adjacent frequencies shrink—at the cost of more memory, parameters, and FLOPs per token. Smaller $$d$$ is cheaper but less expressive.
 
 ### Visual Example
 
-Let us take $$d = 64$$, the fastest pair $$i = 0$$, a sequence length of 6, and the original base value $$10000.0$$. The wavelength of this pair is $$\lambda_0 = \frac{2\pi}{\theta_0} = \frac{2\pi}{1} \approx 6.28$$ tokens. This means the pair completes one full rotation roughly every 6.28 tokens.
+Let $$d=64$$, the fastest pair $$i=0$$, sequence length $$6$$, and base $$b=10000$$. Then $$\lambda_0=\frac{2\pi}{\theta_0}=\frac{2\pi}{1}\approx 6.28$$ tokens, so the clock completes a full lap roughly every $$6.28$$ tokens.
 
-| Position (m) | Angle (mθ₀) | Degrees (°) |
-|:-------------:|:-----------:|:------------:|
-| 0 | 0.000 rad | 0° |
-| 1 | 1.000 rad | 57.3° |
-| 2 | 2.000 rad | 114.6° |
-| 3 | 3.000 rad | 171.9° |
-| 4 | 4.000 rad | 229.2° |
-| 5 | 5.000 rad | 286.5° |
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/bf815024-b442-4c50-baa2-167f91f5e605" alt="Image 1" width="40%">
+</p>
+
+Now a slower pair $$i=7$$. For $$d=64$$ and $$b=10000$$, $$\lambda_7\approx 47$$ tokens, so it takes about $$47$$ tokens to complete a lap.
 
 
-![Image 1](https://github.com/user-attachments/assets/bf815024-b442-4c50-baa2-167f91f5e605)
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/d1c0b004-3b90-410e-a7ca-9274c1c54dfe" alt="Image 2" width="40%">
+  <img src="https://github.com/user-attachments/assets/24fa9c22-f581-4533-9c20-7929bbb404a7" alt="Image 3" width="40%">
+</p>
 
-Now consider a slower pair $$i = 7$$. For $$d = 64$$ and $$\text{base} = 10000$$, this gives $$\lambda_7 \approx 47$$ tokens, meaning it takes about 47 tokens for this pair to complete a full rotation.
+Much slower pairs (e.g., $$i=20$$) have wavelengths in the thousands of tokens, acting like very long-scale channels. The model learns to mix fast (local) and slow (global) clocks inside attention.
 
-| Token | Position (m) | θ (rad) | θ (°) |
-|:------|:-------------:|:--------:|:------:|
-| hello | 0 | 0.000 | 0.0° |
-| my | 1 | 0.133 | 7.6° |
-| name | 2 | 0.267 | 15.3° |
-| is | 3 | 0.400 | 22.9° |
-| Shubham | 4 | 0.533 | 30.5° |
-| Anand | 5 | 0.667 | 38.2° |
+### Long-term Decay
 
-![Image 2](https://github.com/user-attachments/assets/d1c0b004-3b90-410e-a7ca-9274c1c54dfe)
+Following Vaswani et al. (2017), we set $$\theta_i = 10000^{-\frac{2i}{d}}$$. One can prove this setting provides a long-term decay property (see §3.4.3), meaning the inner product decays as the relative distance increases, aligning with the intuition that tokens far apart should connect more weakly.
 
-![Image 3](https://github.com/user-attachments/assets/24fa9c22-f581-4533-9c20-7929bbb404a7)
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/18b88b79-503b-41d4-9207-1045c8959b4c" alt="Image 4" width="45%">
+</p>
 
-For much slower pairs, such as $$i = 20$$, the wavelength grows to around 2000 tokens. Each pair $$i$$ therefore represents a distinct time scale, ranging from very fine to extremely broad. Fast pairs capture local relationships between nearby tokens, while slow pairs encode long range dependencies. The transformer learns how to combine these scales effectively within attention.
+
+## 2.2 Position Interpolation
+
+During pre-training, sequences are chunked to a fixed context length $$L$$. After training, raw models tend to degrade on inputs much longer than $$L$$. Instead of fully retraining on a larger window $$L' > L$$, [kaiokendev](https://kaiokendev.github.io/context#a-bigger-problem) and later researchers from Meta [Chen et al. 2023b](https://arxiv.org/pdf/2306.15595) discovered we can exploit RoPE’s relative nature and compress positions at inference.
+
+kaiokendev’s breakthrough: don’t force the model to extrapolate past what it learned,interpolate instead. Scale positions down by a constant $$s<1$$: effectively use $$m’ = sm$$. For example, setting $$s=\tfrac{1}{4}$$ makes position $$8192$$ look like $$2048$$ to a model trained to $$2048$$ keeping the RoPE angles in-distribution.  
+
+Formally, rewrite the RoPE mapping as  
+
+$$
+f’_W(x_m, m, \theta_d) = f_W\big(x_m,\ g(m),\ h(\theta_d)\big)
+$$
+
+with $$g(m)=m/s$$ or $$g(m)=sm$$ depending on whether you scale the position fed to the angles or the inverse frequency. The common “compress positions” view is $$m’ = sm$$ with $$s=\tfrac{L}{L’}<1$$, and $$h(\theta_d)=\theta_d$$. This is called **Position Interpolation (PI)**: keep the frequency schedule, shrink the effective positions so long inputs fall back into the range the model already mastered.
+
+**Intuition:** the model was trained up to $$L$$ (say 2048). Beyond that, raw RoPE angles enter a regime it never learned. By scaling, position $$8192$$ maps to an effective $$2048$$, so attention continues to operate in the familiar range without breaking long-range reasoning.
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/d8658608-63a2-4d51-9b7e-d9a55ecefee7" alt="Image 5" width="65%">
+</p>
+
+Below is a figure from the paper that clearly illustrates why **extrapolation fails** while **interpolation succeeds**.
+
+1. **Left panel:** The red curve represents the fitted attention score function $$a(s)$$, trained on positional differences $$s \in [0, 2048]$$.  
+   The blue dots correspond to training samples (random input points).  
+   Within this range, the attention scores remain smooth and well-behaved, typically bounded around $$[-1, 1]$$.
+
+2. **Middle panel:** When evaluated beyond the training range ($$s > L_{\text{train}}$$), the function rapidly diverges, with values exceeding $$8000$$.  
+   This uncontrolled growth leads to catastrophic failures in attention computation, as softmax weights collapse or explode.
+
+3. **Right panel:** Under **Position Interpolation**, positions are compressed so that effective distances stay within the trained interval.  
+   As a result, the function remains smooth, stable, and well-behaved—preserving consistent attention patterns even for much longer sequences.
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/1da3ea7c-4865-47a2-bf8e-ca4e88a4a696" alt="Image 5" width="75%">
+</p>
+
+
+
+
