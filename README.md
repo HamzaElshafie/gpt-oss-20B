@@ -141,6 +141,9 @@ Following Vaswani et al. (2017), we set $$\theta_i = 10000^{-\frac{2i}{d}}$$. On
   <img src="https://github.com/user-attachments/assets/18b88b79-503b-41d4-9207-1045c8959b4c" alt="Image 4" width="45%">
 </p>
 
+### Why RoPE shapes model weights and fails at extrapolation  
+
+RoPE defines position by rotating each two-dimensional subvector at its own fixed frequency, so that every token’s representation becomes a composite phase pattern - a multi-frequency fingerprint across all pairs of dimensions. During training, the projection weights $$W_Q$$ and $$W_K$$ learn not just token semantics, but how those semantics behave after rotation: they implicitly encode how to interpret those fingerprints so that relative rotations yield meaningful attention. Because those weights have only ever seen fingerprint patterns arising from the training positional range, they internalise mappings tailored to that phase space. If you extend to much larger positions, the rotations generate fingerprint patterns that lie in phase regions never encountered in training, and the learned projections no longer know how to map them consistently. leading attention to misalign, explode, or degrade. This is explained more in next section.
 
 ## 2.2 Position Interpolation
 
@@ -178,6 +181,65 @@ Below is a figure from the paper that clearly illustrates why **extrapolation fa
   <img src="https://github.com/user-attachments/assets/1da3ea7c-4865-47a2-bf8e-ca4e88a4a696" alt="Image 5" width="75%">
 </p>
 
+## 2.3 The NTK-Aware Approach
+
+The primary limitation of simple Position Interpolation (PI) is that it uniformly compresses all of the model's learned positional frequencies, destroying the critical high-frequency information responsible for local token relationships.
+
+The "NTK-Aware" approach, first proposed by the community, solves this by modifying the rotational base of RoPE. This change is calculated to selectively apply interpolation pressure, ensuring that high frequencies are scaled less (or not at all), while low frequencies are scaled the most.
+
+#### The Core Problem
+
+Recall that RoPE encodes position using a set of paired dimensions, each associated with a unique frequency $\theta_i$.
+
+The frequency for dimension pair $i$ (where $i=0$ is the fastest pair) is:
+$$\theta_i = \mathbf{b}^{-2i/d}$$
+
+| Dimension Index i | θᵢ (Frequency) | Wavelength (λᵢ) | Positional Information Encoded |
+| :---: | :---: | :---: | :---: |
+| **Small i (e.g., i=0)** | **Highest** | **Shortest** (≈6 tokens) | **Local, fine-grained relationships** |
+| **Large i (e.g., i=d/2−1)** | **Lowest** | **Longest** (up to ≈b tokens) | **Global, long-range relationships** |
+
+Simple linear interpolation crushes all these frequencies equally, causing the high-frequency clocks to spin so slowly that adjacent tokens become positionally indistinguishable.
+
+#### The NTK-Aware Solution: Changing the Base
+
+The NTK-Aware method addresses this by calculating a new base ($\mathbf{b}_{\text{new}}$) designed to achieve two goals:
+
+1.  **Preserve the Highest Frequency:** The $i=0$ (local) dimension must remain unchanged ($\theta_{0, \text{new}} \approx \theta_{0, \text{orig}}$).
+2.  **Interpolate the Lowest Frequency:** The final dimension ($i=d/2-1$) must be compressed by the context extension factor $\alpha$.
+
+The required adjustment to the base $\mathbf{b}$ to accomplish this dimension-dependent scaling is:
+
+$$\mathbf{b}_{\text{new}} = \mathbf{b}_{\text{original}} \times \alpha^{d/(d-2)}$$
+
+As the original post stated:
+
+> Instead of the simple linear interpolation scheme, I've tried to design a nonlinear interpolation scheme using tools from NTK literature. Basically this interpolation scheme changes the base of the RoPE instead of the scale, which intuitively changes the "spinning" speed which each of the RoPE's dimension vectors compared to the next. Because it does not scale the fourier features directly, all the positions are perfectly distinguishable from each other...
+
+By applying the new, larger base $\mathbf{b}_{\text{new}}$, the interpolation pressure is naturally distributed: the scaling factor is near $1.0$ for the highest frequencies and gradually increases towards $1/\alpha$ for the lowest frequencies.
+
+#### Numerical Example: Selective Scaling
+
+Let's see this in action for a toy model where $\mathbf{d=8}$, $\mathbf{b_{\text{orig}} = 10000}$, and we want to extend the context by a factor of $\mathbf{\alpha=4}$ (e.g., from 2K to 8K).
+
+The new base is calculated as:
+$$\mathbf{b}_{\text{new}} = 10000 \times 4^{8/(8-2)} \approx \mathbf{63496}$$
+
+We compare the scaling (compression) effect on the wavelengths ($\lambda = 2\pi/\theta$) across the dimensions:
+
+| Dimension Index i | Frequency Type | Original Wavelength λ | NTK-Aware Wavelength λₙₜₖ | Scaling Factor |
+| :---: | :---: | :---: | :---: | :---: |
+| **0** | **Highest (Local)** | ≈ 6.28 | **≈ 6.28** | **1.0× (Protected !)** |
+| 1 | High-Mid | ≈ 62.8 | ≈ 69.0 | 1.1× (Minor change) |
+| 2 | Low-Mid | ≈ 628 | ≈ 755 | 1.2× |
+| **3** | **Lowest (Global)** | **≈ 6283** | **≈ 8243** | **1.31× (Max Compression)** |
+
+This table clearly demonstrates the core success of the NTK-Aware approach:
+
+* The **Fastest (Local) clock** is completely protected (scaled by $1.0\times$) so the model retains its ability to discern local relationships.
+* The **Slowest (Global) clock** absorbs most of the required context extension, ensuring the full length (8K tokens) is now mapped within the model's original trained frequency space.
+
+By shifting the base, we **smoothly spread the pressure** to the frequencies that can handle it (the long-range ones), while preserving the high-frequency/local fidelity the model needs to function.
 
 
 
