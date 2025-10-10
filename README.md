@@ -6,7 +6,8 @@ A PyTorch + Triton implementation of the GPT-OSS-20B architecture focused on eff
 1. [Setup Instructions](#1-setup-instructions)  
 2. [Rotary Position Embedding (RoPE)](#2-rotary-position-embedding-rope)  
 &nbsp;&nbsp;&nbsp;&nbsp;2.1 [Original RoPE](#21-original-rope)  
-&nbsp;&nbsp;&nbsp;&nbsp;2.2 [Position Interpolation](#22-position-interpolation)
+&nbsp;&nbsp;&nbsp;&nbsp;2.2 [Position Interpolation](#22-position-interpolation)  
+&nbsp;&nbsp;&nbsp;&nbsp;2.3 [The NTK-Aware Approach](#23-the-ntk-aware-approach)
 
 ## 1. Setup Instructions
 
@@ -185,7 +186,7 @@ Below is a figure from the paper that clearly illustrates why **extrapolation fa
 
 The primary limitation of simple Position Interpolation (PI) is that it uniformly compresses all of the model's learned positional frequencies, destroying the critical high-frequency information responsible for local token relationships.
 
-The "NTK-Aware" approach, first proposed by the community, solves this by modifying the rotational base of RoPE. This change is calculated to selectively apply interpolation pressure, ensuring that high frequencies are scaled less (or not at all), while low frequencies are scaled the most.
+The "NTK-Aware" approach, first proposed in a [reddit post](https://www.reddit.com/r/LocalLLaMA/comments/14lz7j5/ntkaware_scaled_rope_allows_llama_models_to_have/), solves this by modifying the rotational base of RoPE. This change is calculated to selectively apply interpolation pressure, ensuring that high frequencies are scaled less (or not at all), while low frequencies are scaled the most.
 
 #### The Core Problem
 
@@ -227,7 +228,7 @@ $$\mathbf{b}_{\text{new}} = 10000 \times 4^{8/(8-2)} \approx \mathbf{63496}$$
 
 We compare the scaling (compression) effect on the wavelengths ($\lambda = 2\pi/\theta$) across the dimensions:
 
-| Dimension Index i | Frequency Type | Original Wavelength λ | NTK-Aware Wavelength λₙₜₖ | Scaling Factor |
+| Pair Index i | Frequency Type | Original Wavelength λ | NTK-Aware Wavelength λₙₜₖ | Scaling Factor |
 | :---: | :---: | :---: | :---: | :---: |
 | **0** | **Highest (Local)** | ≈ 6.28 | **≈ 6.28** | **1.0× (Protected !)** |
 | 1 | High-Mid | ≈ 62.8 | ≈ 69.0 | 1.1× (Minor change) |
@@ -240,6 +241,16 @@ This table clearly demonstrates the core success of the NTK-Aware approach:
 * The **Slowest (Global) clock** absorbs most of the required context extension, ensuring the full length (8K tokens) is now mapped within the model's original trained frequency space.
 
 By shifting the base, we **smoothly spread the pressure** to the frequencies that can handle it (the long-range ones), while preserving the high-frequency/local fidelity the model needs to function.
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/f7db85d4-c8f2-45e7-bd5d-ffb8b4404f92" alt="Image 7" width="65%">
+</p>
+
+The figure from post shows the perplexity comparison of the different context extension methods we have been exploring on Llama 7B. The gray line presents the baseline (scale=1), blue corresponds to linear interpolation with scale=4 and then green line corresponds to the NTK-aware scaling with alpha=8. As seen the NTK-aware scaling maintains much lower perplexity across extended content lengths without any fine-tuning
+
+The figure above from the original post compares the perplexity of different RoPE context extension methods on LLaMA 7B. The gray line shows the baseline model with the original RoPE configuration (scale=1), limited to a 2k context. The blue dashed line represents linear position interpolation with a scale of 4, which does extend the context but increases in perplexity as the sequence grows longer. Finally, the green line corresponds to the NTK-aware scaling method with $$\alpha = 8$$, which maintains much lower perplexity across extended context lengths and notably, this is achieved without any fine-tuning.
+
+> To my surprise, this method works extremely well, so much so that you don't even need to fine tune the LLaMA 7B model for 4096 context size! The perplexity degradation is minimal. I'm sure with fine tuning this would become even better.
 
 
 
