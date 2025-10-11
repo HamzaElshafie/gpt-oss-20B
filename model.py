@@ -22,7 +22,7 @@ class ModelArgs:
     initial_context_length: int = 4096
     norm_eps: float = 1e-05
     rope_theta: float = 150000.0 # This is the "base" during RoPE in the llama-2 implementation
-    rope_scaling_factor: float = 32.0
+    rope_scaling_factor: float = 32.0 # s = L_new / L_orig
     rope_ntk_alpha: float = 1.0
     rope_ntk_beta: float = 32.0
 
@@ -50,3 +50,33 @@ class ModelArgs:
             t = t * torch.rsqrt(torch.mean(t**2, dim=-1, keepdim=True) + self.eps) # Keepdim=True makes shape
             # Shape: (Batch, Seq_len, hidden_size)
             return (t * self.scale).to(dtype)
+        
+    class RotaryEmbedding(nn.Module):
+        def __init__(
+            self, 
+            head_dim: int, # Must be even 
+            base: int, # Base for the geometric progression of frequencies
+            dtype: torch.dtype,
+            initial_context_length: int = 4096, # The training context L
+            max_content_length: int = 131072,
+            scaling_factor: float = 1.0, # s = L_new / L_orig --> 131072 / 4096 = 32
+            ntk_alpha: float = 1.0, # Low frequencies below α follow original NTK-aware behaviour
+            ntk_beta: float = 32.0, # High frequencies beyond β follow linear interpolation
+            device: torch.device | None = None # Where to allocate the cos/sin tensors
+        ) -> None:
+            """See YaRN paper https://arxiv.org/pdf/2309.00071"""
+            super().__init__()
+            self.head_dim = head_dim
+            self.base = base
+            self.dtype = dtype
+            self.initial_context_length = initial_context_length
+            self.max_content_length = max_content_length
+            self.scaling_factor = scaling_factor
+            self.ntk_alpha = ntk_alpha
+            self.ntk_beta = ntk_beta
+            self.device = device
+            # Each of shape (max_context_length, head_dim // 2)
+            self.cos, self.sin = self._compute_cos_sin(0, self.max_content_length)
+
+        def _compute_cos_sin(self, start: int, num_tokens: int):
+            pass
