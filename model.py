@@ -21,7 +21,7 @@ class ModelArgs:
     sliding_window: int = 128
     initial_context_length: int = 4096
     norm_eps: float = 1e-05
-    rope_theta: float = 150000.0 # This is the "base" during RoPE in the llama-2 implementation
+    rope_theta: float = 150000.0 # This is the "base" during RoPE
     rope_scaling_factor: float = 32.0 # s = L_new / L_orig
     rope_ntk_alpha: float = 1.0
     rope_ntk_beta: float = 32.0
