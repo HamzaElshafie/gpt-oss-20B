@@ -202,7 +202,7 @@ The primary limitation of simple Position Interpolation (PI) is that it uniforml
 
 The "NTK-Aware" approach, first proposed in a [reddit post](https://www.reddit.com/r/LocalLLaMA/comments/14lz7j5/ntkaware_scaled_rope_allows_llama_models_to_have/), solves this by modifying the rotational base of RoPE. This change is calculated to selectively apply interpolation pressure, ensuring that high frequencies are scaled less (or not at all), while low frequencies are scaled the most.
 
-#### 2.3.1 The Core Problem
+### 2.3.1 The Core Problem
 
 Recall that RoPE encodes position using a set of paired dimensions, each associated with a unique frequency $\theta_i$.
 
@@ -216,7 +216,7 @@ $$\theta_i = \mathbf{b}^{-2i/d}$$
 
 Simple linear interpolation crushes all these frequencies equally, causing the high-frequency clocks to spin so slowly that adjacent tokens become positionally indistinguishable.
 
-#### 2.3.2 The NTK-Aware Solution: Changing the Base
+### 2.3.2 The NTK-Aware Solution: Changing the Base
 
 The NTK-Aware method addresses this by calculating a new base ($\mathbf{b}_{\text{new}}$) designed to achieve two goals:
 
@@ -233,7 +233,7 @@ As the original post stated:
 
 By applying the new, larger base $\mathbf{b}_{\text{new}}$, the interpolation pressure is naturally distributed: the scaling factor is near $1.0$ for the highest frequencies and gradually increases towards $1/\alpha$ for the lowest frequencies.
 
-#### 2.3.3 Numerical Example: Selective Scaling
+### 2.3.3 Numerical Example: Selective Scaling
 
 Let's see this in action for a toy model where $\mathbf{d=8}$, $\mathbf{b_{\text{orig}} = 10000}$, and we want to extend the context by a factor of $\mathbf{\alpha=4}$ (e.g., from 2K to 8K).
 
