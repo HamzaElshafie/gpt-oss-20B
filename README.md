@@ -19,7 +19,7 @@ A PyTorch + Triton implementation of the GPT-OSS-20B architecture focused on eff
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.3.3 [Numerical Example: Selective Scaling](#233-numerical-example-selective-scaling)  
 &nbsp;&nbsp;&nbsp;&nbsp;2.4 [The "NTK-by-parts" Interpolation](#24-the-ntk-by-parts-interpolation)  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.4.1 [The Core Mechanism: The Ratio r(d)](#241-the-core-mechanism-the-ratio-rd)  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.4.2 [$\alpha$ and $\beta$: Defining the Three Scaling Zones](#242-alpha-and-beta-defining-the-three-scaling-zones)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.4.2 [Alpha and Beta: Defining the Three Scaling Zones](#242-alpha-and-beta-defining-the-three-scaling-zones)  
 &nbsp;&nbsp;&nbsp;&nbsp;2.5 [YaRN: Yet Another RoPE Extension](#25-yarn-yet-another-rope-extension)  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.5.1 [The Problem with Pure Interpolation: Softmax Sharpening](#251-the-problem-with-pure-interpolation-softmax-sharpening)  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.5.2 [Attention Temperature Scaling](#252-attention-temperature-scaling)  
