@@ -64,7 +64,7 @@ class ModelArgs:
             ntk_beta: float = 32.0, # High frequencies beyond β follow linear interpolation
             device: torch.device | None = None # Where to allocate the cos/sin tensors
         ) -> None:
-            """See YaRN paper https://arxiv.org/pdf/2309.00071"""
+            """See YaRN paper https://arxiv.org/pdf/2309.00071 and README.md for theory"""
             super().__init__()
             self.head_dim = head_dim
             self.base = base
