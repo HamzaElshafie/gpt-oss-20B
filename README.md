@@ -3,8 +3,6 @@ A PyTorch + Triton implementation of the GPT-OSS-20B architecture focused on eff
 
 ## Contents
 
-## Contents
-
 1. [Setup Instructions](#1-setup-instructions)  
 2. [Rotary Position Embedding (RoPE)](#2-rotary-position-embedding-rope)  
 &nbsp;&nbsp;&nbsp;&nbsp;2.1 [Original RoPE](#21-original-rope)  
@@ -13,7 +11,7 @@ A PyTorch + Triton implementation of the GPT-OSS-20B architecture focused on eff
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.1.3 [Dimensional Trade-offs](#213-dimensional-trade-offs)  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.1.4 [Visual Example](#214-visual-example)  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.1.5 [Long-term Decay](#215-long-term-decay)  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.1.6 [Why RoPE shapes model weights and fails at extrapolation](#216-why-rope-shapes-model-weights-and-fails-at-extrapolation)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.1.6 [Why RoPE Shapes Model Weights and Fails at Extrapolation](#216-why-rope-shapes-model-weights-and-fails-at-extrapolation)  
 &nbsp;&nbsp;&nbsp;&nbsp;2.2 [Position Interpolation](#22-position-interpolation)  
 &nbsp;&nbsp;&nbsp;&nbsp;2.3 [The NTK-Aware Approach](#23-the-ntk-aware-approach)  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.3.1 [The Core Problem](#231-the-core-problem)  
@@ -21,7 +19,11 @@ A PyTorch + Triton implementation of the GPT-OSS-20B architecture focused on eff
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.3.3 [Numerical Example: Selective Scaling](#233-numerical-example-selective-scaling)  
 &nbsp;&nbsp;&nbsp;&nbsp;2.4 [The "NTK-by-parts" Interpolation](#24-the-ntk-by-parts-interpolation)  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.4.1 [The Core Mechanism: The Ratio r(d)](#241-the-core-mechanism-the-ratio-rd)  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.4.2 [Alpha and Beta: Defining the Three Scaling Zones](#242-alpha-and-beta-defining-the-three-scaling-zones)
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.4.2 [$\alpha$ and $\beta$: Defining the Three Scaling Zones](#242-alpha-and-beta-defining-the-three-scaling-zones)  
+&nbsp;&nbsp;&nbsp;&nbsp;2.5 [YaRN: Yet Another RoPE Extension](#25-yarn-yet-another-rope-extension)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.5.1 [The Problem with Pure Interpolation: Softmax Sharpening](#251-the-problem-with-pure-interpolation-softmax-sharpening)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.5.2 [Attention Temperature Scaling](#252-attention-temperature-scaling)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.5.3 [The "Length Scaling" Trick](#253-the-length-scaling-trick)
 
 ## 1. Setup Instructions
 
@@ -135,7 +137,7 @@ Increasing $$d$$ gives more pairs (more clocks) and finer coverage—the gaps be
 Let $$d=64$$, the fastest pair $$i=0$$, sequence length $$6$$, and base $$b=10000$$. Then $$\lambda_0=\frac{2\pi}{\theta_0}=\frac{2\pi}{1}\approx 6.28$$ tokens, so the clock completes a full lap roughly every $$6.28$$ tokens.
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/bf815024-b442-4c50-baa2-167f91f5e605" alt="Image 1" width="40%">
+  <img src="https://github.com/user-attachments/assets/bf815024-b442-4c50-baa2-167f91f5e605" alt="Image 1" width="45%">
 </p>
 
 Now a slower pair $$i=7$$. For $$d=64$$ and $$b=10000$$, $$\lambda_7\approx 47$$ tokens, so it takes about $$47$$ tokens to complete a lap.
@@ -153,7 +155,7 @@ Much slower pairs (e.g., $$i=20$$) have wavelengths in the thousands of tokens, 
 Following Vaswani et al. (2017), we set $$\theta_i = 10000^{-\frac{2i}{d}}$$. One can prove this setting provides a long-term decay property (see §3.4.3), meaning the inner product decays as the relative distance increases, aligning with the intuition that tokens far apart should connect more weakly.
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/18b88b79-503b-41d4-9207-1045c8959b4c" alt="Image 4" width="45%">
+  <img src="https://github.com/user-attachments/assets/18b88b79-503b-41d4-9207-1045c8959b4c" alt="Image 4" width="60%">
 </p>
 
 ### 2.1.6 Why RoPE shapes model weights and fails at extrapolation  
@@ -193,7 +195,7 @@ Below is a figure from the paper that clearly illustrates why **extrapolation fa
    As a result, the function remains smooth, stable, and well-behaved—preserving consistent attention patterns even for much longer sequences.
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/1da3ea7c-4865-47a2-bf8e-ca4e88a4a696" alt="Image 5" width="75%">
+  <img src="https://github.com/user-attachments/assets/1da3ea7c-4865-47a2-bf8e-ca4e88a4a696" alt="Image 5" width="80%">
 </p>
 
 ## 2.3 The NTK-Aware Approach
@@ -257,7 +259,7 @@ This table clearly demonstrates the core success of the NTK-Aware approach:
 By shifting the base, we **smoothly spread the pressure** to the frequencies that can handle it (the long-range ones), while preserving the high-frequency/local fidelity the model needs to function.
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/f7db85d4-c8f2-45e7-bd5d-ffb8b4404f92" alt="Image 7" width="65%">
+  <img src="https://github.com/user-attachments/assets/f7db85d4-c8f2-45e7-bd5d-ffb8b4404f92" alt="Image 7" width="70%">
 </p>
 
 The figure from post shows the perplexity comparison of the different context extension methods we have been exploring on Llama 7B. The gray line presents the baseline (scale=1), blue corresponds to linear interpolation with scale=4 and then green line corresponds to the NTK-aware scaling with alpha=8. As seen the NTK-aware scaling maintains much lower perplexity across extended content lengths without any fine-tuning
@@ -310,5 +312,54 @@ $$
 
 By separating the frequency spectrum into parts, "NTK-by-parts" effectively solves the trade-off: it ensures the fast, local clocks are always kept stable and in-distribution (using PI), while the slow, global clocks are aggressively scaled for long context (using NTK-Aware). This results in a stable and high-performing model even after fine-tuning.
 
+### 2.5 YaRN: Yet Another RoPE Extension
+
+In 2023, researchers from Nous Research, [EleutherAI](https://www.eleuther.ai) and University of Geneva introduced [YaRN (Yet Another RoPE Extension)](https://arxiv.org/pdf/2309.00071). YaRN takes the best frequency-aware scaling method (NTK-by-parts) and adds one crucial innovation to address a downstream effect of interpolation: **Attention Temperature Scaling**.
+
+YaRN combines two key techniques:
+
+1.  **NTK-by-parts Interpolation:** Frequency-aware scaling (from the previous section).
+2.  **Attention Temperature Scaling:** A novel mechanism to stabilise attention scores.
+
+#### 2.5.1 The Problem with Pure Interpolation: Softmax Sharpening
+
+While Position Interpolation (PI) and NTK-by-parts successfully extend the context window, they both share a limitation rooted in the geometry of the positional embeddings:
+
+When you compress the positional indices (which all interpolation methods must do), you are geometrically squeezing the angular distance between the $Q$ and $K$ vectors.
+
+- **Issue:** This compression reduces the angular separation between distant tokens. Because the attention score is calculated via the dot product ($q^{\mathsf{T}} k$), a smaller angle leads to a systematically higher dot product score than the model was trained for. The scores are artificially inflated for certain compressed positions.
+  
+- **Result (Sharpening):** When these inflated scores hit the Softmax function, the resulting probability distribution becomes exaggeratedly sharp. The attention mechanism over-relies on a single, high-scoring key and suppresses all others. This damages the model's ability to maintain fine-grained distinctions among compressed positions, which is crucial for complex reasoning.
+
+### 2.5.2 Attention Temperature Scaling
+
+YaRN solves the "sharpening" problem by introducing a temperature parameter, $t$, to the attention logits before the Softmax operation. This process is called **Attention Temperature Scaling**.
+
+The theoretical modification is to include the temperature $t$:
+
+$$\text{softmax}\left(\frac{q_n^{\mathsf{T}} k_m}{t\sqrt{D}}\right)$$
+
+Where $t$ is calculated based on the scale factor $s$ (the context extension factor, $L_{\text{new}} / L_{\text{orig}}$):
+
+$$t = \sqrt{1/s} \cdot \ln(s) + 1$$
+
+The Intuition of Softening the Attention:
+
+> This may seem counter-intuitive - a higher temperature actually **softens** the attention distribution, making the model pay attention to more tokens rather than focusing sharply. However, this is precisely why it works: position interpolation compresses positional information, which can create artifacts where certain keys get artificially inflated scores. By softening the Softmax, YaRN prevents the model from over-relying on a single, potentially incorrect high-scoring key. Instead, it forces the model to consider a broader range of keys, making its decisions more robust to the slight loss of precision from position interpolation. It’s a counter-intuitive but powerful idea - deliberately making attention “fuzzier” to handle compressed positions better.
+
+### 2.5.3 The "Length Scaling" Trick
+
+The actual implementation avoids modifying the attention code entirely. By recognizing that the dot product is symmetric, dividing the logits by $t$ is mathematically equivalent to scaling the Query and Key vectors by a factor of $1/\sqrt{t}$:
+
+$$\text{softmax}\left(\frac{(\frac{q_n}{\sqrt{t}})^{\mathsf{T}} (\frac{k_m}{\sqrt{t}})}{\sqrt{D}}\right) = \text{softmax}\left(\frac{q_n^{\mathsf{T}} k_m}{t\sqrt{D}}\right)$$
+
+YaRN implements this by multiplying the complex RoPE embeddings by the constant factor $\mathbf{1/\sqrt{t}}$. This "length scaling" trick effectively alters the attention mechanism with zero overhead during inference or training, as the RoPE embeddings are generated once in advance.
+
+This dual approach, combining the stable NTK-by-parts frequency-aware scaling with the elegant **Attention Temperature Scaling**, allows YaRN to extend context with minimal perplexity degradation and maintain fine-grained positional discrimination. Therefore, this is the method OpenAI used in their official implementation and the one I use in this repo. 
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/144bbe63-aeb8-441a-80db-b3d639078274" alt="Image 9" width="70%">
+</p>
 
 
+This plot shows the experimental impact of YaRN's Attention Temperature Scaling on the perplexity (PPL) change ratio over long-context documents, specifically for a context extension factor of $s=8$. The X-axis represents the scaling factor $1/\sqrt{t}$, which controls the degree of softening applied to the Softmax distribution. The curve demonstrates the existence of an optimal "sweet spot" for this temperature correction. As $1/\sqrt{t}$ increases from the initial reference point of $1.0$ up to about $1.25$, the perplexity rapidly improves, hitting a peak improvement of approximately $-0.3$, which indicates a large performance boost. The curve reaches its minimum (best performance) when $1/\sqrt{t}$ is approximately $1.25$ to $1.3$. This point is the temperature sweet spot where the Softmax is sufficiently softened to counteract the compression artifacts without losing necessary focus. Conversely, as $1/\sqrt{t}$ continues to increase past this optimum, the perplexity starts to worsen again, demonstrating that the Softmax is becoming too soft or over-cooled, which causes the model to lose the necessary distinction between relevant and irrelevant tokens. This experiment clearly validates YaRN's approach of actively softening the attention to achieve robust long-context performance.
