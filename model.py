@@ -15,7 +15,7 @@ class ModelArgs:
     num_key_value_heads: int = 8
     head_dim: int = 64
     vocab_size: int = 201088
-    hidden_size: int = 2880 # Also refered to as d_model
+    hidden_size: int = 2880 # Model dimension
     intermediate_size: int = 28800
     swiglu_limit: float = 7.0
     sliding_window: int = 128
