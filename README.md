@@ -281,7 +281,7 @@ To distinguish between the fast and slow clocks, the "NTK-by-parts" method uses 
 
 $$r(d) = \frac{L}{\lambda_d}$$
 
-Recall your definition: The wavelength $\lambda_d$ is the number of tokens it takes for the clock hand to complete one full revolution ($\lambda_d = 2\pi/\theta_d$).
+Recall the definition from before: The wavelength $\lambda_d$ is the number of tokens it takes for the clock hand to complete one full revolution ($\lambda_d = 2\pi/\theta_d$).
 
 The ratio $r(d)$ gives us a measure of frequency:
 * **Large $r(d)$ (e.g., $r(d)>32$):** The wavelength ($\lambda_d$) is very small, meaning the wave completes **many cycles** within $L$. This is a **High-Frequency (Fast) Clock**, crucial for local relationships.
