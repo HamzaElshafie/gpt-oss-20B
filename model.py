@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.functional as F
+from torch.profiler import record_function
 from dataclasses import dataclass
 import math
 import os
@@ -83,7 +84,8 @@ class ModelArgs:
             # Calculate the θ (theta) pair indices [0, 2, 4, ..., head_dim-2]
             # Shape: (head_dim / 2)
             pair_indices = torch.arange(0, self.head_dim, 2, dtype=torch.float, device=self.device)
-            # Calculate freqs --> Formula: θ_i = base^-2(i-1)/head_dim, where i = [1, 2, ..., head_dim/2] (We don't inverse yet, later!)
+            # Calculate base frequencies: freq = base^(2i/d)
+            # Later we'll invert to get θ_i = base^(-2i/d)
             # Shape: (head_dim / 2)
             freqs = self.base ** (pair_indices / self.head_dim)
 
@@ -148,9 +150,41 @@ class ModelArgs:
                 inv_freqs = 1.0 / freqs # Original RoPE
 
             return concentration, inv_freqs
-
-
-
+        
 
         def _compute_cos_sin(self, start: int, num_tokens: int):
-            pass
+            concentration, inv_freqs = self._compute_concentration_and_inv_freq()
+            # Shape: (max_context_length)
+            t = torch.arange(start, start + num_tokens - 1, dtype=torch.float32, device=self.device)
+            # Compute outer product
+            # Shape: (max_context_length) ⊗ (head_dim / 2) --> (max_context_length, head_dim / 2)
+            freqs = torch.einsum("i,j->ij", t, inv_freqs)
+            # Turn into rotation coefficients cos(tθ_i) and sin(tθ_i)
+            # Multiply by YaRN concentration to apply the attention temperature softening via length scaling trick
+            # Shapes: (max_context_length, head_dim / 2)
+            cos = freqs.cos() * concentration 
+            sin = freqs.sin() * concentration
+            return cos, sin
+        
+    @record_function("rotate")
+    def _rotate(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor):
+        # Query or Key tensors to rotate
+        # Shape: (max_context_length, head_dim / 2) --> (1, max_context_length, 1, head_dim / 2). 1's for broadcasting
+        cos = cos.unsqueeze(0).unsqueeze(2).to(x.dtype)
+        sin = sin.unsqueeze(0).unsqueeze(2).to(x.dtype)
+        # x's Shape: (Batch_size, Seq_len, n_heads, head_dim) --> Shape: (Batch_size, Seq_len, n_heads, head_dim / 2)
+        # Assume Batch_size, Seq_len and n_heads = 1 for simplicity and head_dim = 8
+        # x = [x₁, x₂, x₃, x₄, x₅, x₆, x₇, x₈]
+        # x1 = [x₁, x₂, x₃, x₄]
+        # x2 = [x₅, x₆, x₇, x₈]
+        x1, x2 = torch.chunk(x, 2, dim=-1)
+        # Shape: (Batch_size, Seq_len, n_heads, head_dim / 2)
+        o1 = x1 * cos - x2 * sin
+        # Shape: (Batch_size, Seq_len, n_heads, head_dim / 2)
+        o2 = x2 * cos + x1 * sin
+        # Shape: (Batch_size, Seq_len, n_heads, head_dim)
+        return torch.cat((o1, o2), dim=-1)
+
+
+
+
