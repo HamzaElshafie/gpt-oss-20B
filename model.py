@@ -166,25 +166,36 @@ class ModelArgs:
             sin = freqs.sin() * concentration
             return cos, sin
         
-    @record_function("rotate")
-    def _rotate(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor):
-        # Query or Key tensors to rotate
-        # Shape: (max_context_length, head_dim / 2) --> (1, max_context_length, 1, head_dim / 2). 1's for broadcasting
-        cos = cos.unsqueeze(0).unsqueeze(2).to(x.dtype)
-        sin = sin.unsqueeze(0).unsqueeze(2).to(x.dtype)
-        # x's Shape: (Batch_size, Seq_len, n_heads, head_dim) --> Shape: (Batch_size, Seq_len, n_heads, head_dim / 2)
-        # Assume Batch_size, Seq_len and n_heads = 1 for simplicity and head_dim = 8
-        # x = [x₁, x₂, x₃, x₄, x₅, x₆, x₇, x₈]
-        # x1 = [x₁, x₂, x₃, x₄]
-        # x2 = [x₅, x₆, x₇, x₈]
-        x1, x2 = torch.chunk(x, 2, dim=-1)
-        # Shape: (Batch_size, Seq_len, n_heads, head_dim / 2)
-        o1 = x1 * cos - x2 * sin
-        # Shape: (Batch_size, Seq_len, n_heads, head_dim / 2)
-        o2 = x2 * cos + x1 * sin
-        # Shape: (Batch_size, Seq_len, n_heads, head_dim)
-        return torch.cat((o1, o2), dim=-1)
+        @record_function("rotate")
+        def _rotate(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor):
+            # Query or Key tensors to rotate
+            # Shape: (max_context_length, head_dim / 2) --> (1, max_context_length, 1, head_dim / 2). 1's for broadcasting
+            cos = cos.unsqueeze(0).unsqueeze(2).to(x.dtype)
+            sin = sin.unsqueeze(0).unsqueeze(2).to(x.dtype)
+            # x's Shape: (Batch_size, Seq_len, n_heads, head_dim) --> Shape: (Batch_size, Seq_len, n_heads, head_dim / 2)
+            # Assume Batch_size, Seq_len and n_heads = 1 for simplicity and head_dim = 8
+            # x = [x₁, x₂, x₃, x₄, x₅, x₆, x₇, x₈]
+            # x1 = [x₁, x₂, x₃, x₄]
+            # x2 = [x₅, x₆, x₇, x₈]
+            x1, x2 = torch.chunk(x, 2, dim=-1)
+            # Shape: (Batch_size, Seq_len, n_heads, head_dim / 2)
+            o1 = x1 * cos - x2 * sin
+            # Shape: (Batch_size, Seq_len, n_heads, head_dim / 2)
+            o2 = x2 * cos + x1 * sin
+            # Shape: (Batch_size, Seq_len, n_heads, head_dim)
+            return torch.cat((o1, o2), dim=-1)
+        
+        @record_function("rope")
+        def forward(self, query: torch.Tensor, key: torch.Tensor, offset: torch.LongTensor):
+            batch_size, num_tokens, num_heads, head_dim = query.shape
+            batch_size, num_tokens, num_key_value_heads, head_dim = key.shape
+            # Shape: (num_tokens)
+            idx = torch.arange(num_tokens) + offset
+            idx = idx % self.max_content_length
+            # Shapes: (max_context_length, head_dim / 2) --> 0 below being the dim index
+            cos = self.cos.index_select(0, idx)
+            sin = self.sin.index_select(0, idx)
 
-
-
-
+            query = self._rotate(query, cos, sin)
+            key = self._rotate(key, cos, sin)
+            return query, key
