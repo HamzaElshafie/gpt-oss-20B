@@ -4,26 +4,27 @@ A PyTorch + Triton implementation of the GPT-OSS-20B architecture focused on eff
 ## Contents
 
 1. [Setup Instructions](#1-setup-instructions)  
-2. [Rotary Position Embedding (RoPE)](#2-rotary-position-embedding-rope)  
-&nbsp;&nbsp;&nbsp;&nbsp;2.1 [Original RoPE](#21-original-rope)  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.1.1 [Mathematical Definition](#211-mathematical-definition)  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.1.2 [Intuitive Explanation](#212-intuitive-explanation)  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.1.3 [Dimensional Trade-offs](#213-dimensional-trade-offs)  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.1.4 [Visual Example](#214-visual-example)  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.1.5 [Long-term Decay](#215-long-term-decay)  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.1.6 [Why RoPE Shapes Model Weights and Fails at Extrapolation](#216-why-rope-shapes-model-weights-and-fails-at-extrapolation)  
-&nbsp;&nbsp;&nbsp;&nbsp;2.2 [Position Interpolation](#22-position-interpolation)  
-&nbsp;&nbsp;&nbsp;&nbsp;2.3 [The NTK-Aware Approach](#23-the-ntk-aware-approach)  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.3.1 [The Core Problem](#231-the-core-problem)  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.3.2 [The NTK-Aware Solution: Changing the Base](#232-the-ntk-aware-solution-changing-the-base)  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.3.3 [Numerical Example: Selective Scaling](#233-numerical-example-selective-scaling)  
-&nbsp;&nbsp;&nbsp;&nbsp;2.4 [The "NTK-by-parts" Interpolation](#24-the-ntk-by-parts-interpolation)  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.4.1 [The Core Mechanism: The Ratio r(d)](#241-the-core-mechanism-the-ratio-rd)  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.4.2 [Alpha and Beta: Defining the Three Scaling Zones](#242-alpha-and-beta-defining-the-three-scaling-zones)  
-&nbsp;&nbsp;&nbsp;&nbsp;2.5 [YaRN: Yet Another RoPE Extension](#25-yarn-yet-another-rope-extension)  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.5.1 [The Problem with Pure Interpolation: Softmax Sharpening](#251-the-problem-with-pure-interpolation-softmax-sharpening)  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.5.2 [Attention Temperature Scaling](#252-attention-temperature-scaling)  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.5.3 [The "Length Scaling" Trick](#253-the-length-scaling-trick)
+2. [Model Architecture](#2-model-architecture)  
+3. [Rotary Position Embedding (RoPE)](#3-rotary-position-embedding-rope)  
+&nbsp;&nbsp;&nbsp;&nbsp;3.1 [Original RoPE](#31-original-rope)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.1.1 [Mathematical Definition](#311-mathematical-definition)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.1.2 [Intuitive Explanation](#312-intuitive-explanation)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.1.3 [Dimensional Trade-offs](#313-dimensional-trade-offs)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.1.4 [Visual Example](#314-visual-example)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.1.5 [Long-term Decay](#315-long-term-decay)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.1.6 [Why RoPE Shapes Model Weights and Fails at Extrapolation](#316-why-rope-shapes-model-weights-and-fails-at-extrapolation)  
+&nbsp;&nbsp;&nbsp;&nbsp;3.2 [Position Interpolation](#32-position-interpolation)  
+&nbsp;&nbsp;&nbsp;&nbsp;3.3 [The NTK-Aware Approach](#33-the-ntk-aware-approach)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.3.1 [The Core Problem](#331-the-core-problem)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.3.2 [The NTK-Aware Solution: Changing the Base](#332-the-ntk-aware-solution-changing-the-base)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.3.3 [Numerical Example: Selective Scaling](#333-numerical-example-selective-scaling)  
+&nbsp;&nbsp;&nbsp;&nbsp;3.4 [The "NTK-by-parts" Interpolation](#34-the-ntk-by-parts-interpolation)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.4.1 [The Core Mechanism: The Ratio r(d)](#341-the-core-mechanism-the-ratio-rd)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.4.2 [Alpha and Beta: Defining the Three Scaling Zones](#342-alpha-and-beta-defining-the-three-scaling-zones)  
+&nbsp;&nbsp;&nbsp;&nbsp;3.5 [YaRN: Yet Another RoPE Extension](#35-yarn-yet-another-rope-extension)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.5.1 [The Problem with Pure Interpolation: Softmax Sharpening](#351-the-problem-with-pure-interpolation-softmax-sharpening)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.5.2 [Attention Temperature Scaling](#352-attention-temperature-scaling)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.5.3 [The "Length Scaling" Trick](#353-the-length-scaling-trick)
 
 ## 1. Setup Instructions
 
@@ -76,7 +77,9 @@ huggingface-cli download openai/gpt-oss-20b \
   --local-dir gpt-oss-20b/
 ```
 
-## 2. Rotary Position Embedding (RoPE)
+## 2. Model Architecture
+
+## 3. Rotary Position Embedding (RoPE)
 Rotary Position Embedding (RoPE) is an effective position-encoding technique which was first introduced in [Su et al. 2021](https://arxiv.org/pdf/2104.09864). Due to its simplicity and effictivness has since become the de facto for modern LLMs including Llama 2, 3 [Grattafiori, Dubey, et al. 2024](https://arxiv.org/pdf/2407.21783), Mistral, Gemma-2 and other open source models. While the original method proved to be effective, models failed faced a crucial limitation of not being able to maintain quaility while processing sequences longer than their trained context. Other methods have been proposed which I am going to go through in this section until we reach the [YaRN](https://arxiv.org/pdf/2309.00071) extenstion which I use in this repo following OpenAI's original implementation 
 
 Other great in-depth resources (Most of the visuals in this documentation is taken from these resources so credits to all authors
@@ -87,13 +90,13 @@ Sources:
 - [Extending Context is Hard](https://kaiokendev.github.io/context#a-bigger-problem)
 
 
-## 2.1 Original RoPE
+## 3.1 Original RoPE
 
 ### Core Idea
 
 Attention scores use dot products. We want the score between token $$m$$ and token $$n$$ to depend on the distance $$(n - m)$$ rather than on absolute $$m$$ and $$n$$. RoPE achieves this by rotating each two-dimensional slice of the query and key vectors by angles that grow linearly with position.
 
-### 2.1.1 Mathematical Definition
+### 3.1.1 Mathematical Definition
 
 We require the attention score to depend only on relative distance:  
 
@@ -124,15 +127,15 @@ $$
 f’_W(x_m, m, \theta_d) = f_W\big(x_m,\ g(m),\ h(\theta_d)\big)
 $$
 
-### 2.1.2 Intuitive Explanation
+### 3.1.2 Intuitive Explanation
 
 The schedule $$\theta_i=b^{-2i/d}$$ creates a geometric progression of frequencies across the $$\ell=d/2$$ pairs. Small $$i$$ gives large $$\theta_i$$ (fast “clocks”) with short wavelengths for very local detail; large $$i$$ gives small $$\theta_i$$ (slow “clocks”) with long wavelengths for long-range structure. The wavelength in tokens for pair $$i$$ is $$\lambda_i = \frac{2\pi}{\theta_i}$$, i.e., how many tokens it takes that pair’s “clock hand” to complete one full revolution.
 
-### 2.1.3 Dimensional Trade-offs
+### 3.1.3 Dimensional Trade-offs
 
 Increasing $$d$$ gives more pairs (more clocks) and finer coverage—the gaps between adjacent frequencies shrink—at the cost of more memory, parameters, and FLOPs per token. Smaller $$d$$ is cheaper but less expressive.
 
-### 2.1.4 Visual Example
+### 3.1.4 Visual Example
 
 Let $$d=64$$, the fastest pair $$i=0$$, sequence length $$6$$, and base $$b=10000$$. Then $$\lambda_0=\frac{2\pi}{\theta_0}=\frac{2\pi}{1}\approx 6.28$$ tokens, so the clock completes a full lap roughly every $$6.28$$ tokens.
 
@@ -150,7 +153,7 @@ Now a slower pair $$i=7$$. For $$d=64$$ and $$b=10000$$, $$\lambda_7\approx 47$$
 
 Much slower pairs (e.g., $$i=20$$) have wavelengths in the thousands of tokens, acting like very long-scale channels. The model learns to mix fast (local) and slow (global) clocks inside attention.
 
-### 2.1.5 Long-term Decay
+### 3.1.5 Long-term Decay
 
 Following Vaswani et al. (2017), we set $$\theta_i = 10000^{-\frac{2i}{d}}$$. One can prove this setting provides a long-term decay property (see §3.4.3), meaning the inner product decays as the relative distance increases, aligning with the intuition that tokens far apart should connect more weakly.
 
@@ -158,11 +161,11 @@ Following Vaswani et al. (2017), we set $$\theta_i = 10000^{-\frac{2i}{d}}$$. On
   <img src="https://github.com/user-attachments/assets/18b88b79-503b-41d4-9207-1045c8959b4c" alt="Image 4" width="60%">
 </p>
 
-### 2.1.6 Why RoPE shapes model weights and fails at extrapolation  
+### 3.1.6 Why RoPE shapes model weights and fails at extrapolation  
 
 RoPE defines position by rotating each two-dimensional subvector at its own fixed frequency, so that every token’s representation becomes a composite phase pattern - a multi-frequency fingerprint across all pairs of dimensions. During training, the projection weights $$W_Q$$ and $$W_K$$ learn not just token semantics, but how those semantics behave after rotation: they implicitly encode how to interpret those fingerprints so that relative rotations yield meaningful attention. Because those weights have only ever seen fingerprint patterns arising from the training positional range, they internalise mappings tailored to that phase space. If you extend to much larger positions, the rotations generate fingerprint patterns that lie in phase regions never encountered in training, and the learned projections no longer know how to map them consistently. leading attention to misalign, explode, or degrade. This is explained more in next section.
 
-## 2.2 Position Interpolation
+## 3.2 Position Interpolation
 
 During pre-training, sequences are chunked to a fixed context length $$L$$. After training, raw models tend to degrade on inputs much longer than $$L$$. Instead of fully retraining on a larger window $$L' > L$$, [kaiokendev](https://kaiokendev.github.io/context#a-bigger-problem) and later researchers from Meta [Chen et al. 2023b](https://arxiv.org/pdf/2306.15595) discovered we can exploit RoPE’s relative nature and compress positions at inference.
 
@@ -198,13 +201,13 @@ Below is a figure from the paper that clearly illustrates why **extrapolation fa
   <img src="https://github.com/user-attachments/assets/1da3ea7c-4865-47a2-bf8e-ca4e88a4a696" alt="Image 5" width="80%">
 </p>
 
-## 2.3 The NTK-Aware Approach
+## 3.3 The NTK-Aware Approach
 
 The primary limitation of simple Position Interpolation (PI) is that it uniformly compresses all of the model's learned positional frequencies, destroying the critical high-frequency information responsible for local token relationships.
 
 The "NTK-Aware" approach, first proposed in a [reddit post](https://www.reddit.com/r/LocalLLaMA/comments/14lz7j5/ntkaware_scaled_rope_allows_llama_models_to_have/), solves this by modifying the rotational base of RoPE. This change is calculated to selectively apply interpolation pressure, ensuring that high frequencies are scaled less (or not at all), while low frequencies are scaled the most.
 
-### 2.3.1 The Core Problem
+### 3.3.1 The Core Problem
 
 Recall that RoPE encodes position using a set of paired dimensions, each associated with a unique frequency $\theta_i$.
 
@@ -218,7 +221,7 @@ $$\theta_i = \mathbf{b}^{-2i/d}$$
 
 Simple linear interpolation crushes all these frequencies equally, causing the high-frequency clocks to spin so slowly that adjacent tokens become positionally indistinguishable.
 
-### 2.3.2 The NTK-Aware Solution: Changing the Base
+### 3.3.2 The NTK-Aware Solution: Changing the Base
 
 The NTK-Aware method addresses this by calculating a new base ($\mathbf{b}_{\text{new}}$) designed to achieve two goals:
 
@@ -235,7 +238,7 @@ As the original post stated:
 
 By applying the new, larger base $\mathbf{b}_{\text{new}}$, the interpolation pressure is naturally distributed: the scaling factor is near $1.0$ for the highest frequencies and gradually increases towards $1/\alpha$ for the lowest frequencies.
 
-### 2.3.3 Numerical Example: Selective Scaling
+### 3.3.3 Numerical Example: Selective Scaling
 
 Let's see this in action for a toy model where $\mathbf{d=8}$, $\mathbf{b_{\text{orig}} = 10000}$, and we want to extend the context by a factor of $\mathbf{\alpha=4}$ (e.g., from 2K to 8K).
 
@@ -269,7 +272,7 @@ The figure above from the original post compares the perplexity of different RoP
 > To my surprise, this method works extremely well, so much so that you don't even need to fine tune the LLaMA 7B model for 4096 context size! The perplexity degradation is minimal.
 
 
-### 2.4 The "NTK-by-parts" Interpolation
+### 3.4 The "NTK-by-parts" Interpolation
 
 The core issue that necessitated the "NTK-by-parts" method was the realization that the initial NTK-Aware method, while excellent for extrapolation **without fine-tuning**, introduced a catastrophic instability when the model was trained on long-context data.
 
@@ -277,7 +280,7 @@ This happened because NTK-Aware, in its effort to preserve the high frequencies 
 
 The solution is to create a frequency-aware interpolation that guarantees **interpolation** (stability) for the fast clocks and allows **NTK-aware scaling** (maximum context extension) for the slow clocks.
 
-### 2.4.1 The Core Mechanism: The Ratio $r(d)$
+### 3.4.1 The Core Mechanism: The Ratio $r(d)$
 
 To distinguish between the fast and slow clocks, the "NTK-by-parts" method uses a variable $\mathbf{r(d)}$ defined as the ratio of the original context length ($L$) to the wavelength ($\lambda_d$) of the current dimension $d$:
 
@@ -289,7 +292,7 @@ The ratio $r(d)$ gives us a measure of frequency:
 * **Large $r(d)$ (e.g., $r(d)>32$):** The wavelength ($\lambda_d$) is very small, meaning the wave completes **many cycles** within $L$. This is a **High-Frequency (Fast) Clock**, crucial for local relationships.
 * **Small $r(d)$ (e.g., $r(d)<1$):** The wavelength ($\lambda_d$) is large (even greater than $L$), meaning the wave completes **less than one cycle** within $L$. This is a **Low-Frequency (Slow) Clock**, crucial for global relationships.
 
-### 2.4.2 $\alpha$ and $\beta$: Defining the Three Scaling Zones
+### 3.4.2 $\alpha$ and $\beta$: Defining the Three Scaling Zones
 
 The hyperparameters $\mathbf{\alpha}$ and $\mathbf{\beta}$ are the tunable boundary markers on this frequency ratio $r(d)$. They define three frequency zones that dictate the scaling strategy. For LLaMA, the values are $\mathbf{\alpha=1}$ and $\mathbf{\beta=32}$.
 
@@ -312,7 +315,7 @@ $$
 
 By separating the frequency spectrum into parts, "NTK-by-parts" effectively solves the trade-off: it ensures the fast, local clocks are always kept stable and in-distribution (using PI), while the slow, global clocks are aggressively scaled for long context (using NTK-Aware). This results in a stable and high-performing model even after fine-tuning.
 
-### 2.5 YaRN: Yet Another RoPE Extension
+### 3.5 YaRN: Yet Another RoPE Extension
 
 In 2023, researchers from Nous Research, [EleutherAI](https://www.eleuther.ai) and University of Geneva introduced [YaRN (Yet Another RoPE Extension)](https://arxiv.org/pdf/2309.00071). YaRN takes the best frequency-aware scaling method (NTK-by-parts) and adds one crucial innovation to address a downstream effect of interpolation: **Attention Temperature Scaling**.
 
@@ -321,7 +324,7 @@ YaRN combines two key techniques:
 1.  **NTK-by-parts Interpolation:** Frequency-aware scaling (from the previous section).
 2.  **Attention Temperature Scaling:** A novel mechanism to stabilise attention scores.
 
-#### 2.5.1 The Problem with Pure Interpolation: Softmax Sharpening
+#### 3.5.1 The Problem with Pure Interpolation: Softmax Sharpening
 
 While Position Interpolation (PI) and NTK-by-parts successfully extend the context window, they both share a limitation rooted in the geometry of the positional embeddings:
 
@@ -331,7 +334,7 @@ When you compress the positional indices (which all interpolation methods must d
   
 - **Result (Sharpening):** When these inflated scores hit the Softmax function, the resulting probability distribution becomes exaggeratedly sharp. The attention mechanism over-relies on a single, high-scoring key and suppresses all others. This damages the model's ability to maintain fine-grained distinctions among compressed positions, which is crucial for complex reasoning.
 
-### 2.5.2 Attention Temperature Scaling
+### 3.5.2 Attention Temperature Scaling
 
 YaRN solves the "sharpening" problem by introducing a temperature parameter, $t$, to the attention logits before the Softmax operation. This process is called **Attention Temperature Scaling**.
 
@@ -347,7 +350,7 @@ The Intuition of Softening the Attention:
 
 > This may seem counter-intuitive - a higher temperature actually **softens** the attention distribution, making the model pay attention to more tokens rather than focusing sharply. However, this is precisely why it works: position interpolation compresses positional information, which can create artifacts where certain keys get artificially inflated scores. By softening the Softmax, YaRN prevents the model from over-relying on a single, potentially incorrect high-scoring key. Instead, it forces the model to consider a broader range of keys, making its decisions more robust to the slight loss of precision from position interpolation. It’s a counter-intuitive but powerful idea - deliberately making attention “fuzzier” to handle compressed positions better.
 
-### 2.5.3 The "Length Scaling" Trick
+### 3.5.3 The "Length Scaling" Trick
 
 The actual implementation avoids modifying the attention code entirely. By recognizing that the dot product is symmetric, dividing the logits by $t$ is mathematically equivalent to scaling the Query and Key vectors by a factor of $1/\sqrt{t}$:
 

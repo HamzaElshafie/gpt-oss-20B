@@ -200,6 +200,9 @@ class RotaryEmbedding(nn.Module):
         key = self._rotate(key, cos, sin)
         return query, key
     
+class Cache:
+    pass
+
 class AttentionBlock(nn.Module):
     pass
 
