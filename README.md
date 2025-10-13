@@ -1,5 +1,5 @@
 # GPT-OSS-20B
-A PyTorch + Triton implementation of the GPT-OSS-20B architecture focused on efficient inference. All components are coded from scratch: RoPE with YaRN, RMSNorm, SwiGLU with clamping and residual connection, Mixture-of-Experts (MoE), plus a Triton FlashAttention V2 algorithm with learned sinks, banded attention, and GQA, and KV-cache.
+A PyTorch + Triton implementation of the [GPT-OSS-20B](https://arxiv.org/pdf/2508.10925) architecture focused on efficient inference. All components are coded from scratch: RoPE with YaRN, RMSNorm, SwiGLU with clamping and residual connection, Mixture-of-Experts (MoE), plus a Triton FlashAttention V2 algorithm with learned sinks, banded attention, and GQA, and KV-cache.
 
 ## Contents
 
@@ -81,7 +81,7 @@ huggingface-cli download openai/gpt-oss-20b \
 
 ## 2. Model Architecture
 
-OpenAI's **GPT-OSS** represents a hugely anticipated family of open-weights models, marking the company's first public release of open-weights models since GPT-2. The family comprises two variants: a large model with **117 billion parameters (gpt-oss-120b)** and a smaller one with **21 billion parameters (gpt-oss-20b)**. Both models utilise a **Mixture-of-Experts (MoE)** architecture and a **4-bit quantisation scheme (MXFP4)**. This combination is crucial for enabling fast inference (due to fewer active parameters) while maintaining low resource consumption.
+OpenAI's **GPT-OSS** represents a hugely anticipated family of [open-weights models](https://huggingface.co/blog/welcome-openai-gpt-oss), marking the company's first public release of open-weights models since GPT-2. The family comprises two variants: a large model with **117 billion parameters (gpt-oss-120b)** and a smaller one with **21 billion parameters (gpt-oss-20b)**. Both models utilise a **Mixture-of-Experts (MoE)** architecture and a **4-bit quantisation scheme (MXFP4)**. This combination is crucial for enabling fast inference (due to fewer active parameters) while maintaining low resource consumption.
 
 **Note:** *For simplicity, the quantisation scheme is disregarded in this repository, although the official models do utilise MXFP4 for optimised inference.*
 
@@ -90,9 +90,7 @@ OpenAI's **GPT-OSS** represents a hugely anticipated family of open-weights mode
   <img src="https://github.com/user-attachments/assets/33b534e9-ad4f-4b07-9095-a6be6c19096e" alt="Image 5" width="48%">
 </p>
 
-
-
-As illustrated, the architecture incorporates several state-of-the-art components, aligning closely with current high-performance LLMs while featuring key innovations:
+As illustrated (figures from ["The Illustrated GPT-OSS"](https://newsletter.languagemodels.co/p/the-illustrated-gpt-oss), the architecture incorporates several state-of-the-art components, aligning closely with current high-performance LLMs while featuring key innovations:
 
 ### Components:
 
