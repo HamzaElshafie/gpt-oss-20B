@@ -5,6 +5,8 @@ A PyTorch + Triton implementation of the GPT-OSS-20B architecture focused on eff
 
 1. [Setup Instructions](#1-setup-instructions)  
 2. [Model Architecture](#2-model-architecture)  
+&nbsp;&nbsp;&nbsp;&nbsp;2.1 [Mixture-of-Experts (MoE)](#21-mixture-of-experts-moe)  
+&nbsp;&nbsp;&nbsp;&nbsp;2.2 [Attention](#22-attention)  
 3. [Rotary Position Embedding (RoPE)](#3-rotary-position-embedding-rope)  
 &nbsp;&nbsp;&nbsp;&nbsp;3.1 [Original RoPE](#31-original-rope)  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.1.1 [Mathematical Definition](#311-mathematical-definition)  
@@ -78,6 +80,34 @@ huggingface-cli download openai/gpt-oss-20b \
 ```
 
 ## 2. Model Architecture
+
+OpenAI's **GPT-OSS** represents a hugely anticipated family of open-weights models, marking the company's first public release of open-weights models since GPT-2. The family comprises two variants: a large model with **117 billion parameters (gpt-oss-120b)** and a smaller one with **21 billion parameters (gpt-oss-20b)**. Both models utilise a **Mixture-of-Experts (MoE)** architecture and a **4-bit quantisation scheme (MXFP4)**. This combination is crucial for enabling fast inference (due to fewer active parameters) while maintaining low resource consumption.
+
+**Note:** *For simplicity, the quantisation scheme is disregarded in this repository, although the official models do utilise MXFP4 for optimised inference.*
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/e7d20729-328b-444d-9e1a-5cb2d6997995" alt="Image 5" width="60%">
+</p>
+
+As illustrated, the architecture incorporates several state-of-the-art components, aligning closely with current high-performance LLMs while featuring key innovations:
+
+### Components:
+
+### 2.1 Mixture-of-Experts (MoE)
+The standard feed-forward network (FFN) is replaced with a Mixture-of-Experts block. This allows only a subset of experts to be engaged for each token generation step, significantly reducing computational load:
+* Experts: The gpt-oss-120b model uses 128 experts, while the gpt-oss-20b model uses 32 experts.
+* Routing: A standard linear router projection maps residual activations to scores for each expert.
+* Selection: For both models, the **top-4 experts** are selected per token, and their outputs are weighted by the softmax of the router projection, calculated only over the selected experts.
+* Activation: The MoE blocks utilise the **gated SwiGLU** activation function. *(More details on the MoE mechanism will follow in a later section!)*
+
+### 2.2 Attention
+The self-attention mechanism is highly optimised for efficiency and context length:
+* Mechanism: Attention layers alternate between a **full content attention** mechanism and a **sliding 128-token window attention** mechanism.
+* Heads: Each layer features 64 query heads of dimension 64.
+* **Grouped-Query Attention (GQA)**: The model employs GQA with 8 key-value (KV) heads for optimised memory bandwidth and fast inference.
+* Positional Encoding: **Rotary Positional Embedding (RoPE)** is used, augmented with the **YaRN extension** (Yet another RoPE extensioN) to support an extended context length of **131,072 tokens**.
+* Attention Bias: Each attention head includes a learned bias in the denominator of the softmax, similar to concepts like Attention Sinks. This feature allows the attention mechanism to selectively **pay no attention** to certain tokens, providing an additional learned control signal.
+
 
 ## 3. Rotary Position Embedding (RoPE)
 Rotary Position Embedding (RoPE) is an effective position-encoding technique which was first introduced in [Su et al. 2021](https://arxiv.org/pdf/2104.09864). Due to its simplicity and effictivness has since become the de facto for modern LLMs including Llama 2, 3 [Grattafiori, Dubey, et al. 2024](https://arxiv.org/pdf/2407.21783), Mistral, Gemma-2 and other open source models. While the original method proved to be effective, models failed faced a crucial limitation of not being able to maintain quaility while processing sequences longer than their trained context. Other methods have been proposed which I am going to go through in this section until we reach the [YaRN](https://arxiv.org/pdf/2309.00071) extenstion which I use in this repo following OpenAI's original implementation 
