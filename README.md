@@ -5,9 +5,9 @@ A PyTorch + Triton implementation of the [GPT-OSS-20B](https://arxiv.org/pdf/250
 
 1. [Setup Instructions](#1-setup-instructions)  
 2. [Model Architecture](#2-model-architecture)  
-&nbsp;&nbsp;&nbsp;&nbsp;2.1 [Mixture-of-Experts (MoE)](#21-mixture-of-experts-moe)  
-&nbsp;&nbsp;&nbsp;&nbsp;2.2 [Attention](#22-attention)  
-3. [Rotary Position Embedding (RoPE)](#3-rotary-position-embedding-rope)  
+&nbsp;&nbsp;&nbsp;&nbsp;2.1 [Attention](#21-attention)  
+&nbsp;&nbsp;&nbsp;&nbsp;2.2 [Mixture-of-Experts (MoE)](#22-mixture-of-experts-moe)
+4. [Rotary Position Embedding (RoPE)](#3-rotary-position-embedding-rope)  
 &nbsp;&nbsp;&nbsp;&nbsp;3.1 [Original RoPE](#31-original-rope)  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.1.1 [Mathematical Definition](#311-mathematical-definition)  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.1.2 [Intuitive Explanation](#312-intuitive-explanation)  
@@ -27,7 +27,7 @@ A PyTorch + Triton implementation of the [GPT-OSS-20B](https://arxiv.org/pdf/250
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.5.1 [The Problem with Pure Interpolation: Softmax Sharpening](#351-the-problem-with-pure-interpolation-softmax-sharpening)  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.5.2 [Attention Temperature Scaling](#352-attention-temperature-scaling)  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.5.3 [The "Length Scaling" Trick](#353-the-length-scaling-trick)
-4. [Mixture-of-Experts (MoE)](#4-mixture-of-experts-moe)  
+5. [Mixture-of-Experts (MoE)](#4-mixture-of-experts-moe)  
 
 ## 1. Setup Instructions
 
@@ -86,23 +86,9 @@ OpenAI's **GPT-OSS** represents a hugely anticipated family of [open-weights mod
 
 **Note:** *For simplicity, the quantisation scheme is disregarded in this repository, although the official models do utilise MXFP4 for optimised inference.*
 
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/e7d20729-328b-444d-9e1a-5cb2d6997995" alt="Image 5" width="48%">
-  <img src="https://github.com/user-attachments/assets/33b534e9-ad4f-4b07-9095-a6be6c19096e" alt="Image 5" width="48%">
-</p>
-
-As illustrated (figures from ["The Illustrated GPT-OSS"](https://newsletter.languagemodels.co/p/the-illustrated-gpt-oss), the architecture incorporates several state-of-the-art components, aligning closely with current high-performance LLMs while featuring key innovations:
-
 ### Components:
 
-### 2.1 Mixture-of-Experts (MoE)
-The standard feed-forward network (FFN) is replaced with a Mixture-of-Experts block. This allows only a subset of experts to be engaged for each token generation step, significantly reducing computational load:
-* Experts: The gpt-oss-120b model uses 128 experts, while the gpt-oss-20b model uses 32 experts.
-* Routing: A standard linear router projection maps residual activations to scores for each expert.
-* Selection: For both models, the **top-4 experts** are selected per token, and their outputs are weighted by the softmax of the router projection, calculated only over the selected experts.
-* Activation: The MoE blocks utilise the **gated SwiGLU** activation function. *(More details on the MoE mechanism will follow in a later section!)*
-
-### 2.2 Attention
+### 2.1 Attention
 The self-attention mechanism is highly optimised for efficiency and context length:
 * Mechanism: Attention layers alternate between a **full content attention** mechanism and a **sliding 128-token window attention** mechanism.
 * Heads: Each layer features 64 query heads of dimension 64.
@@ -110,6 +96,23 @@ The self-attention mechanism is highly optimised for efficiency and context leng
 * Positional Encoding: **Rotary Positional Embedding (RoPE)** is used, augmented with the **YaRN extension** (Yet another RoPE extensioN) to support an extended context length of **131,072 tokens**.
 * Attention Bias: Each attention head includes a learned bias in the denominator of the softmax, similar to concepts like Attention Sinks. This feature allows the attention mechanism to selectively **pay no attention** to certain tokens, providing an additional learned control signal.
 
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/e7d20729-328b-444d-9e1a-5cb2d6997995" alt="Image 5" width="50%">
+  <img src="https://github.com/user-attachments/assets/f6b75744-5bb2-4d03-a946-b0abcb985750" alt="Image 5" width="42%">
+</p>
+
+### 2.2 Mixture-of-Experts (MoE)
+The standard feed-forward network (FFN) is replaced with a Mixture-of-Experts block. This allows only a subset of experts to be engaged for each token generation step, significantly reducing computational load:
+* Experts: The gpt-oss-120b model uses 128 experts, while the gpt-oss-20b model uses 32 experts.
+* Routing: A standard linear router projection maps residual activations to scores for each expert.
+* Selection: For both models, the **top-4 experts** are selected per token, and their outputs are weighted by the softmax of the router projection, calculated only over the selected experts.
+* Activation: The MoE blocks utilise the **gated SwiGLU** activation function. *(More details on the MoE mechanism will follow in a later section!)*
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/33b534e9-ad4f-4b07-9095-a6be6c19096e" alt="Image 5" width="70%">
+</p>
+
+As illustrated (figures from ["The Illustrated GPT-OSS"](https://newsletter.languagemodels.co/p/the-illustrated-gpt-oss), the architecture incorporates several state-of-the-art components, aligning closely with current high-performance LLMs while featuring key innovations:
 
 ## 3. Rotary Position Embedding (RoPE)
 Rotary Position Embedding (RoPE) is an effective position-encoding technique which was first introduced in [Su et al. 2021](https://arxiv.org/pdf/2104.09864). Due to its simplicity and effictivness has since become the de facto for modern LLMs including Llama 2, 3 [Grattafiori, Dubey, et al. 2024](https://arxiv.org/pdf/2407.21783), Mistral, Gemma-2 and other open source models. While the original method proved to be effective, models failed faced a crucial limitation of not being able to maintain quaility while processing sequences longer than their trained context. Other methods have been proposed which I am going to go through in this section until we reach the [YaRN](https://arxiv.org/pdf/2309.00071) extenstion which I use in this repo following OpenAI's original implementation 
