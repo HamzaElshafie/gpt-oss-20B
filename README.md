@@ -86,8 +86,11 @@ OpenAI's **GPT-OSS** represents a hugely anticipated family of open-weights mode
 **Note:** *For simplicity, the quantisation scheme is disregarded in this repository, although the official models do utilise MXFP4 for optimised inference.*
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/e7d20729-328b-444d-9e1a-5cb2d6997995" alt="Image 5" width="60%">
+  <img src="https://github.com/user-attachments/assets/e7d20729-328b-444d-9e1a-5cb2d6997995" alt="Image 5" width="48%">
+  <img src="https://github.com/user-attachments/assets/33b534e9-ad4f-4b07-9095-a6be6c19096e" alt="Image 5" width="48%">
 </p>
+
+
 
 As illustrated, the architecture incorporates several state-of-the-art components, aligning closely with current high-performance LLMs while featuring key innovations:
 
