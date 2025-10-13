@@ -27,6 +27,7 @@ A PyTorch + Triton implementation of the [GPT-OSS-20B](https://arxiv.org/pdf/250
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.5.1 [The Problem with Pure Interpolation: Softmax Sharpening](#351-the-problem-with-pure-interpolation-softmax-sharpening)  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.5.2 [Attention Temperature Scaling](#352-attention-temperature-scaling)  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.5.3 [The "Length Scaling" Trick](#353-the-length-scaling-trick)
+4. [Mixture-of-Experts (MoE)](#4-mixture-of-experts-moe)  
 
 ## 1. Setup Instructions
 
@@ -397,3 +398,14 @@ This dual approach, combining the stable NTK-by-parts frequency-aware scaling wi
 
 
 This plot shows the experimental impact of YaRN's Attention Temperature Scaling on the perplexity (PPL) change ratio over long-context documents, specifically for a context extension factor of $s=8$. The X-axis represents the scaling factor $1/\sqrt{t}$, which controls the degree of softening applied to the Softmax distribution. The curve demonstrates the existence of an optimal "sweet spot" for this temperature correction. As $1/\sqrt{t}$ increases from the initial reference point of $1.0$ up to about $1.25$, the perplexity rapidly improves, hitting a peak improvement of approximately $-0.3$, which indicates a large performance boost. The curve reaches its minimum (best performance) when $1/\sqrt{t}$ is approximately $1.25$ to $1.3$. This point is the temperature sweet spot where the Softmax is sufficiently softened to counteract the compression artifacts without losing necessary focus. Conversely, as $1/\sqrt{t}$ continues to increase past this optimum, the perplexity starts to worsen again, demonstrating that the Softmax is becoming too soft or over-cooled, which causes the model to lose the necessary distinction between relevant and irrelevant tokens. This experiment clearly validates YaRN's approach of actively softening the attention to achieve robust long-context performance.
+
+
+## 4. Mixture-of-Experts (MoE)
+
+The foundational idea behind the Mixture-of-Experts (MoE) architecture was, in fact, introduced long before the recent deep learning traction, dating back to the 1990s. The concept was first presented in the paper **[Adaptive Mixtures of Local Experts](https://direct.mit.edu/neco/article-abstract/3/1/79/5560/Adaptive-Mixtures-of-Local-Experts?redirectedFrom=fulltext)** by Robert Jacobs, Geoffrey Hinton, and other colleagues. They introduced the idea of dividing a single neural network into multiple specialised **"experts"** managed by a **gating network**.
+
+As deep learning picked up momentum with Large Language Models (LLMs), MoE resurfaced in 2017. Noam Shazeer (one of the main authors of the ["Attention Is All You Need"](https://arxiv.org/pdf/1706.03762) paper), alongside other colleagues (including Geoffrey Hinton again), proposed the **[Sparsely-Gated Mixture-of-Experts](https://www.semanticscholar.org/paper/Outrageously-Large-Neural-Networks%3A-The-Layer-Shazeer-Mirhoseini/510e26733aaff585d65701b9f1be7ca9d5afc586)** layer for recurrent neural language models.
+
+The Sparsely-Gated Mixture-of-Experts Layer consists of multiple **experts** (feed-forward networks) and a trainable **gating network** that selects the combination of experts to process each input. The gating mechanism enables **conditional computation** within the network, ensuring that the experts most suited to the input text are selected.
+
+As mentioned in the Model Architecture section, GPT-OSS, along with most contemporary state-of-the-art LLMs, integrates such MoE layers, replacing the traditional feed-forward layer in the original Transformer block. The key components of MoE layers are the **experts**, the **gating mechanism**, and the **load balancing**.
