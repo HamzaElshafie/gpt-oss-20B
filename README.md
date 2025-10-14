@@ -434,5 +434,29 @@ The gating component itself is a **trainable component** within the network, mea
 The following image demonstrates the role of the gating mechanism: it routes the input only to Expert 1 and Expert 3. Consequently, during inference, only the parameters of those selected experts are active and fetched from memory, while the parameters of the unselected experts are not used.
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/aa491573-a608-4624-8d48-7bd43b11698b" alt="Image 10" width="50%">
+<img src="https://github.com/user-attachments/assets/aa491573-a608-4624-8d48-7bd43b11698b" alt="Image 10" width="50%">
 </p>
+
+To compute the output of an MoE module, we take a weighted combination of expert outputs. Consider an MoE layer consisting of $n$ experts, denoted as $E_i(x)$ with $i=1,\dots,n$, that takes input $x$. The final MoE layer output ($y$) is calculated as:
+
+$$
+y = \sum_{i=1}^{n} G(x)_i \, E_i(x)
+$$
+
+where $G(x)_i$ is the $i^{th}$ expert’s final score, and $s_i$ is the initial score modeled based on the Softmax function:
+
+$$
+G(x)_i =
+\begin{cases}
+s_i, & \text{if } i \text{ is in the Top-k selection} \\
+0, & \text{otherwise}
+\end{cases}
+$$
+
+$$
+s_i = \mathrm{Softmax}_i(x \cdot W_{\text{g}})
+$$
+
+Here, the gating layer’s final output $G(x)_i$ is used as the weight when averaging the selected experts’ outputs to compute the MoE layer’s final output. If $G(x)_i$ is zero, we can forgo computing the expert function $E_i(x)$ entirely, which is the source of sparsity.
+
+**Top-k** specifies how many experts are selected to be active per input token during inference. For example, Top-1 gating means each token is directed to one expert, Top-2 to two experts, and so on. For GPT-OSS-20B,based on `ModelArgs`, we have a total of $n=32$ experts but implements **Top-4** gating, meaning that only 4 of the available experts are activated for each token.
