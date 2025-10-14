@@ -434,5 +434,5 @@ The gating component itself is a **trainable component** within the network, mea
 The following image demonstrates the role of the gating mechanism: it routes the input only to Expert 1 and Expert 3. Consequently, during inference, only the parameters of those selected experts are active and fetched from memory, while the parameters of the unselected experts are not used.
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/aa491573-a608-4624-8d48-7bd43b11698b" alt="Image 10" width="70%">
+  <img src="https://github.com/user-attachments/assets/aa491573-a608-4624-8d48-7bd43b11698b" alt="Image 10" width="50%">
 </p>
