@@ -6,8 +6,8 @@ A PyTorch + Triton implementation of the [GPT-OSS-20B](https://arxiv.org/pdf/250
 1. [Setup Instructions](#1-setup-instructions)  
 2. [Model Architecture](#2-model-architecture)  
 &nbsp;&nbsp;&nbsp;&nbsp;2.1 [Attention](#21-attention)  
-&nbsp;&nbsp;&nbsp;&nbsp;2.2 [Mixture-of-Experts (MoE)](#22-mixture-of-experts-moe)
-4. [Rotary Position Embedding (RoPE)](#3-rotary-position-embedding-rope)  
+&nbsp;&nbsp;&nbsp;&nbsp;2.2 [Mixture-of-Experts (MoE)](#22-mixture-of-experts-moe)  
+3. [Rotary Position Embedding (RoPE)](#3-rotary-position-embedding-rope)  
 &nbsp;&nbsp;&nbsp;&nbsp;3.1 [Original RoPE](#31-original-rope)  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.1.1 [Mathematical Definition](#311-mathematical-definition)  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.1.2 [Intuitive Explanation](#312-intuitive-explanation)  
@@ -26,8 +26,10 @@ A PyTorch + Triton implementation of the [GPT-OSS-20B](https://arxiv.org/pdf/250
 &nbsp;&nbsp;&nbsp;&nbsp;3.5 [YaRN: Yet Another RoPE Extension](#35-yarn-yet-another-rope-extension)  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.5.1 [The Problem with Pure Interpolation: Softmax Sharpening](#351-the-problem-with-pure-interpolation-softmax-sharpening)  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.5.2 [Attention Temperature Scaling](#352-attention-temperature-scaling)  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.5.3 [The "Length Scaling" Trick](#353-the-length-scaling-trick)
-5. [Mixture-of-Experts (MoE)](#4-mixture-of-experts-moe)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.5.3 [The "Length Scaling" Trick](#353-the-length-scaling-trick)  
+4. [Mixture-of-Experts (MoE)](#4-mixture-of-experts-moe)  
+&nbsp;&nbsp;&nbsp;&nbsp;4.1 [Experts](#41-experts)  
+&nbsp;&nbsp;&nbsp;&nbsp;4.2 [Gating Mechanism](#42-gating-mechanism)
 
 ## 1. Setup Instructions
 
