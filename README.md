@@ -412,3 +412,27 @@ As deep learning picked up momentum with Large Language Models (LLMs), MoE resur
 The Sparsely-Gated Mixture-of-Experts Layer consists of multiple **experts** (feed-forward networks) and a trainable **gating network** that selects the combination of experts to process each input. The gating mechanism enables **conditional computation** within the network, ensuring that the experts most suited to the input text are selected.
 
 As mentioned in the Model Architecture section, GPT-OSS, along with most contemporary state-of-the-art LLMs, integrates such MoE layers, replacing the traditional feed-forward layer in the original Transformer block. The key components of MoE layers are the **experts**, the **gating mechanism**, and the **load balancing**.
+
+### 4.1 Experts
+
+The fundamental idea of the MoE approach is to introduce **sparsity** within the neural network layers. In a conventional dense layer, all parameters are active for every input token. In contrast, an MoE layer consists of several specialized **"expert" sub-layers**. This design introduces sparsity because only a small **subset of the model's parameters** are utilised for each input token during the forward pass.
+
+In Transformer-based architectures, MoE layers are typically integrated in place of the standard feed-forward layers. The exact implementation strategy varies based on the design goals:
+
+* Some architectures, like GPT-OSS, maximise sparsity by replacing **all** feed-forward layers with MoEs.
+* Others may involve replacing only a subset of the feed-forward layers.
+* Some advanced models even feature a hierarchical structure where one MoE delegates to another MoE.
+
+Crucially, all other LLM layers and their parameters remain unchanged, and these parameters are shared across the various experts.
+
+### 4.2 Gating Mechanism
+
+During the training of an MoE LLM, all expert parameters are updated. The primary role of the **gating mechanism** is to learn how to efficiently distribute input tokens to the most appropriate expert(s). It acts much like a router or a team manager, delegating specific tasks based on each expert's specialisation.
+
+The gating component itself is a **trainable component** within the network, meaning it learns its own set of parameters simultaneously with the other network parameters during the training process.
+
+The following image demonstrates the role of the gating mechanism: it routes the input only to Expert 1 and Expert 3. Consequently, during inference, only the parameters of those selected experts are active and fetched from memory, while the parameters of the unselected experts are not used.
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/aa491573-a608-4624-8d48-7bd43b11698b" alt="Image 10" width="70%">
+</p>
