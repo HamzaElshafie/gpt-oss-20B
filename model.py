@@ -217,19 +217,25 @@ class MLPBlock(nn.Module):
         self.experts_per_token = args.experts_per_token
         self.swiglu_limit = args.swiglu_limit
         self.swiglu_alpha = args.swiglu_alpha
-        # We apply normalisation "before" MLP block
+
+        # We apply normalisation "before" the MLP block (Pre-LN placement)
         self.norm = RMSNorm(args.hidden_size, args.norm_eps, device=device)
+
         # Shape: (hidden_size, num_experts)
-        # This means lets say we are doing a decoding step with a single token, the input
-        # will be of shape (Batch_size, 1, hidden_size) @ (Batch_size, hidden_size, num_experts)
+        # This means, for example, during a decoding step with a single token,
+        # the input will be of shape (Batch_size, 1, hidden_size) @ (hidden_size, num_experts)
         # = (Batch_size, 1, num_experts)
         self.gate = nn.Linear(args.hidden_size, self.num_experts)
-        # This is the first weight matrix which will get us to the expanded dimensions.
-        # Usually in the case with a normal MLP as with llama2 for ex we could do this with nn.Linear
-        # but since we are doing MoE, we will stack `num_experts` number tensors each 
-        # of shape: (intermediate_size * 2, hidden_size)
-        # The 2 here is for W and V tensors from the SwiGLU paper. The formula for the output of a
-        # MLP with SwiGLU module is FFN_SwiGLU = (Swish(xW) * (xV))W2. Here we just pack W and V together
+
+        # This is the first weight matrix which expands the model dimension
+        # to the intermediate dimension. Usually, in a normal MLP (like in LLaMA),
+        # this would just be a single nn.Linear. But since we’re doing MoE,
+        # we stack `num_experts` tensors, each of shape (hidden_size → intermediate_size * 2).
+        #
+        # The 2 here is for the W and V tensors from the SwiGLU paper.
+        # The formula for the output of a SwiGLU MLP is:
+        # FFN_SwiGLU = (Swish(xW) * (xV))W₂
+        # Here, we just pack W and V together into one matrix.
         self.mlp1_weight = nn.Parameter(
             torch.empty(
                 (
@@ -242,18 +248,22 @@ class MLPBlock(nn.Module):
             )
         )
 
-        # Shape per expert tensor: (intermediate_size * 2)
+        # Bias per expert for the first projection
+        # Shape: (2 * intermediate_size)
         self.mlp1_bias = nn.Parameter(
             torch.empty(
                 (
                     args.num_experts,
                     args.intermediate_size * 2
-                )
+                ),
+                device=device,
+                dtype=torch.bfloat16
             )
         )
 
-        # This gets us back to the model's dimension `hidden_size`
-        # Shape per expert tensor: (hidden_size, intermediate_size)
+        # This is the second weight matrix which projects back down
+        # from the intermediate dimension to the model dimension (`hidden_size`)
+        # Shape per expert: (intermediate_size → hidden_size)
         self.mlp2_weight = nn.Parameter(
             torch.empty(
                 (
@@ -266,65 +276,81 @@ class MLPBlock(nn.Module):
             )
         )
 
-        # This the W2 tensor from the paper
-        # Shape per expert tensor: (hidden_size)
+        # This is the W₂ bias term from the SwiGLU formulation
+        # Shape per expert: (hidden_size)
         self.mlp2_bias = nn.Parameter(
             torch.empty(
                 (
                     args.num_experts,
                     args.hidden_size
-                )
+                ),
+                device=device,
+                dtype=torch.bfloat16
             )
         )
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Recall from the paper: "applying root mean square normalization
-        # [6] on the activations before each attention and MoE block. Similar to 
-        # GPT-2 we use Pre-LN placement [7][8]."
+        # As mentioned in the paper: "applying root mean square normalisation
+        # on the activations before each attention and MoE block".
+        # This is also similar to GPT-2 which uses a Pre-LN setup.
         # (Batch_size, Seq_len, hidden_size) --> (Batch_size, Seq_len, hidden_size)
         t = self.norm(x)
-        # Apply gating mechanism
-        # (Batch_size, Seq_len, hidden_size) @ (Batch_size, hidden_size, num_experts)
+
+        # Apply the gating mechanism to determine expert routing
+        # (Batch_size, Seq_len, hidden_size) @ (hidden_size, num_experts)
         # = (Batch_size, Seq_len, num_experts)
         g = self.gate(t)
+
+        # Pick the top-k experts for each token
         # Shape: (Batch_size, Seq_len, experts_per_token)
-        # A tuple is returned of (values, indices)
+        # torch.topk returns (values, indices)
         experts = torch.topk(g, self.experts_per_token, dim=-1, sorted=True)
-        expert_weights = F.softmax(experts.values) # how much each token contributes
+        expert_weights = F.softmax(experts.values, dim=-1)  # how much each token contributes
         expert_indices = experts.indices
 
-        # We now want to select the experts weights only from mlp1
-        # Shape before: (Batch_size, Seq_len, experts_per_token)
-        # Shape after: (Batch_size, Seq_len, experts_per_token, intermediate_size * 2, hidden_size)
+        # Select the corresponding experts’ weights and biases for MLP1
+        # Before selection: (num_experts, hidden_size → 2 * intermediate_size)
+        # After selection:  (Batch_size, Seq_len, experts_per_token, hidden_size → 2 * intermediate_size)
         mlp1_weight = self.mlp1_weight[expert_indices, ...]
         mlp1_bias = self.mlp1_bias[expert_indices, ...]
-        
-        # Apply first projection
-        #  t: (Batch_size, Seq_len, hidden_size)
-        #  mlp1_weight: (Batch_size, Seq_len, experts_per_token, intermediate_size * 2, hidden_size)
 
-        # Each token’s hidden vector (last dim = hidden_size)
-        # is multiplied by each expert’s weight matrix (intermediate_size * 2, hidden_size)
+        # Apply first projection
+        # t: (Batch_size, Seq_len, hidden_size)
+        # mlp1_weight: (Batch_size, Seq_len, experts_per_token, 2 * intermediate_size, hidden_size)
+        #
+        # Each token’s hidden vector (dim = hidden_size)
+        # is multiplied by each expert’s projection (hidden_size → 2 * intermediate_size)
         # summing over the shared 'hidden_size' dimension.
         # Resulting shape:
-        # t: (Batch_size, Seq_len, experts_per_token, intermediate_size * 2)
+        # (Batch_size, Seq_len, experts_per_token, 2 * intermediate_size)
         t = torch.einsum("bth,btkih->btki", t, mlp1_weight) + mlp1_bias
         t = swiglu(t, alpha=self.swiglu_alpha, limit=self.swiglu_limit)
 
-        # Now we perform the second linear projection (compression back to model dim)
-        # Select the corresponding expert parameters again:
-        # (Batch_size, Seq_len, experts_per_token, hidden_size, intermediate_size)
+        # Now perform the second projection which compresses back to model dim
+        # Select the expert parameters again:
+        # Before selection: (num_experts, intermediate_size → hidden_size)
+        # After selection:  (Batch_size, Seq_len, experts_per_token, intermediate_size → hidden_size)
         mlp2_weight = self.mlp2_weight[expert_indices, ...]
         mlp2_bias = self.mlp2_bias[expert_indices, ...]
+
+        # Apply second projection
+        # t: (Batch_size, Seq_len, experts_per_token, intermediate_size)
+        # mlp2_weight: (Batch_size, Seq_len, experts_per_token, hidden_size, intermediate_size)
+        # Einsum: "btki,btkhi->btkh"
+        # Output: (Batch_size, Seq_len, experts_per_token, hidden_size)
         t = torch.einsum("btki,btkhi->btkh", t, mlp2_weight) + mlp2_bias
         t = swiglu(t, alpha=self.swiglu_alpha, limit=self.swiglu_limit)
-        
-        # Weighted sum of experts
-        # (Batch_size, Seq_len, experts_per_token, hidden_size) * (Batch_size, Seq_len, experts_per_token)
-        # = (Batch_size, Seq_len, hidden_size) 
-        t = torch.einsum("btkh,btk->bth", t, expert_weights)
-        return x + t
 
+        # Weighted sum of expert outputs
+        # (Batch_size, Seq_len, experts_per_token, hidden_size)
+        # weighted by (Batch_size, Seq_len, experts_per_token)
+        # Einsum: "btkh,btk->bth"
+        # Result: (Batch_size, Seq_len, hidden_size)
+        t = torch.einsum("btkh,btk->bth", t, expert_weights)
+
+        # Add residual connection
+        return x + t
+    
 class TransformerBlock(nn.Module):
     def __init__(self, args: ModelArgs, layer_idx, device: torch.device | None = None):
         super().__init__()
