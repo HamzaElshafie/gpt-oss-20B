@@ -208,7 +208,17 @@ class AttentionBlock(nn.Module):
     pass
 
 def swiglu(x: torch.Tensor, alpha: float, limit: float):
-    pass
+    # Input shape: (Batch_size, Seq_len, experts_per_token, 2 * intermediate_size)
+    # The formula for the output of a SwiGLU MLP is:
+    # FFN_SwiGLU = (Swish(xW) * (xV))W₂
+    # The 2 in 2 * intermediate_size stores both W and V in one tensor we split them
+    x_glu, x_linear = x[..., ::2], x[..., 1::2]
+    # From paper "Our SwiGLU implementation is unconventional, including clamping and a residual connection."
+    x_glu = x_glu.clamp(max=limit)
+    x_linear = x_linear.clamp(min=limit, max=limit)
+    out_glu = x_glu * torch.sigmoid(alpha * x_glu)
+    # Add an extra bias to linear layer
+    return out_glu * (x_linear + 1)
 
 class MLPBlock(nn.Module):
     def __init__(self, args: ModelArgs, device: torch.device | None = None):
