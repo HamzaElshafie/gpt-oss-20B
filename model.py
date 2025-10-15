@@ -210,8 +210,9 @@ class AttentionBlock(nn.Module):
 def swiglu(x: torch.Tensor, alpha: float, limit: float):
     # Input shape: (Batch_size, Seq_len, experts_per_token, 2 * intermediate_size)
     # The formula for the output of a SwiGLU MLP is:
-    # FFN_SwiGLU = (Swish(xW) * (xV))W₂
+    # FFN_SwiGLU = (Swish(xW) * (xV))W2
     # The 2 in 2 * intermediate_size stores both W and V in one tensor we split them
+    # Note also the last projection with W2 is made with mlp2_weights inside the MLPBlock
     x_glu, x_linear = x[..., ::2], x[..., 1::2]
     # From paper "Our SwiGLU implementation is unconventional, including clamping and a residual connection."
     x_glu = x_glu.clamp(max=limit)
