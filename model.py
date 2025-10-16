@@ -203,8 +203,31 @@ class RotaryEmbedding(nn.Module):
         return query, key
     
 class Cache:
-    pass
+    def __init__(self, batch_size, n_ctx, n_kv_heads, d_head, device: torch.device | None = None):
+        # Define the KV caches
+        self.k = torch.zeros((batch_size, n_ctx, n_kv_heads, d_head), dtype=torch.bfloat16, device=device)
+        self.v = torch.zeros((batch_size, n_ctx, n_kv_heads, d_head), dtype=torch.bfloat16, device=device)
+        # Keeps track of how many tokens are already stored
+        self.offset = torch.zeros((1, ), dtype=torch.long, device=device)
 
+    def reset(self):
+        self.k.zero_()
+        self.v.zero_()
+        self.offset.zero_()
+
+    def repeat_interleave(self, n):
+        # Repeate each cache entry along the batch dimesion (This could maybe used for beam search)
+        self.k.repeat_interleave(n, dim=0)
+        self.v.repeat_interleave(n, dim=0)
+    
+    def extend(self, k, v):
+        batch_size, n_ctx, n_kv_heads, d_head = self.k.shape
+        indices = torch.arange(0, n_ctx, device=k.device, dtype=torch.long) + self.offset
+        self.k.index_copy(1, indices, k)
+        self.v.index_copy(1, indices, k)
+        self.offset.add_(n_ctx)
+        return self.k, self.v
+    
 class AttentionBlock(nn.Module):
     pass
 
