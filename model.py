@@ -192,7 +192,7 @@ class RotaryEmbedding(nn.Module):
         batch_size, num_tokens, num_heads, head_dim = query.shape
         batch_size, num_tokens, num_key_value_heads, head_dim = key.shape
         # Shape: (num_tokens)
-        idx = torch.arange(num_tokens) + offset
+        idx = torch.arange(num_tokens, device=query.device, dtype=torch.long) + offset
         idx = idx % self.max_content_length
         # Shapes: (max_context_length, head_dim / 2) --> 0 below being the dim index
         cos = self.cos.index_select(0, idx)
@@ -217,20 +217,23 @@ class Cache:
 
     def repeat_interleave(self, n):
         # Repeate each cache entry along the batch dimesion (This could maybe used for beam search)
-        self.k.repeat_interleave(n, dim=0)
-        self.v.repeat_interleave(n, dim=0)
+        self.k = self.k.repeat_interleave(n, dim=0)
+        self.v = self.v.repeat_interleave(n, dim=0)
     
     def extend(self, k, v):
-        batch_size, n_ctx, n_kv_heads, d_head = self.k.shape
-        indices = torch.arange(0, n_ctx, device=k.device, dtype=torch.long) + self.offset
-        self.k.index_copy(1, indices, k)
-        self.v.index_copy(1, indices, k)
-        self.offset.add_(n_ctx)
+        n_new = k.shape[1]
+        indices = torch.arange(0, n_new, device=k.device, dtype=torch.long) + self.offset
+        self.k.index_copy_(1, indices, k)
+        self.v.index_copy_(1, indices, v)
+        self.offset.add_(n_new)
         return self.k, self.v
     
 class AttentionBlock(nn.Module):
-    pass
-
+    def __init__(self, configs: ModelConfigs, layer_idx: int = 0, device: torch.device | None = None):
+        super().__init__()
+    def forward(self, x: torch.Tensor, cache: Cache | None = None) -> torch.Tensor:
+        pass
+    
 def swiglu(x: torch.Tensor, alpha: float, limit: float):
     # Input shape: (Batch_size, Seq_len, experts_per_token, 2 * intermediate_size)
     # The formula for the output of a SwiGLU MLP is:
@@ -240,7 +243,7 @@ def swiglu(x: torch.Tensor, alpha: float, limit: float):
     x_glu, x_linear = x[..., ::2], x[..., 1::2]
     # From paper "Our SwiGLU implementation is unconventional, including clamping and a residual connection."
     x_glu = x_glu.clamp(max=limit)
-    x_linear = x_linear.clamp(min=limit, max=limit)
+    x_linear = x_linear.clamp(min=-limit, max=limit)
     out_glu = x_glu * torch.sigmoid(alpha * x_glu)
     # Add an extra bias to linear layer
     return out_glu * (x_linear + 1)
@@ -428,10 +431,10 @@ class Transformer(nn.Module):
 
     def forward(self, x: torch.Tensor, caches: list[Cache] | None = None) -> torch.Tensor:
         # KV caches
-        # If not caches are provided we will have: caches = [None, None, ..., None]  (24 Nones)
+        # If no caches are provided we will have: caches = [None, None, ..., None]  (24 Nones)
         # If provided: caches = [cache_0, cache_1, cache_2, ..., cache_23]
         caches=caches or [None] * len(self.block)
-        with record_function("embdedding"):
+        with record_function("embedding"):
             # (B, Seq_len) --> (B, Seq_len, hidden_size)
             x = self.embedding(x)
         # Consecutively apply all the layers
