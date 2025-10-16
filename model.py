@@ -1,14 +1,15 @@
 import torch
 import torch.nn as nn
-import torch.functional as F
+import torch.nn.functional as F
 from torch.profiler import record_function
 from dataclasses import dataclass
 import math
 import os
+import json
 
 
 @dataclass
-class ModelArgs:
+class ModelConfigs:
     num_hidden_layers: int = 24
     num_experts: int = 32
     experts_per_token: int = 4
@@ -156,7 +157,7 @@ class RotaryEmbedding(nn.Module):
     def _compute_cos_sin(self, start: int, num_tokens: int):
         concentration, inv_freqs = self._compute_concentration_and_inv_freq()
         # Shape: (max_context_length)
-        t = torch.arange(start, start + num_tokens - 1, dtype=torch.float32, device=self.device)
+        t = torch.arange(start, start + num_tokens, dtype=torch.float32, device=self.device)
         # Compute outer product
         # Shape: (max_context_length) ⊗ (head_dim / 2) --> (max_context_length, head_dim / 2)
         freqs = torch.einsum("i,j->ij", t, inv_freqs)
@@ -222,21 +223,21 @@ def swiglu(x: torch.Tensor, alpha: float, limit: float):
     return out_glu * (x_linear + 1)
 
 class MLPBlock(nn.Module):
-    def __init__(self, args: ModelArgs, device: torch.device | None = None):
+    def __init__(self, configs: ModelConfigs, layer_idx: int = 0, device: torch.device | None = None):
         super().__init__()
-        self.num_experts = args.num_experts
-        self.experts_per_token = args.experts_per_token
-        self.swiglu_limit = args.swiglu_limit
-        self.swiglu_alpha = args.swiglu_alpha
+        self.num_experts = configs.num_experts
+        self.experts_per_token = configs.experts_per_token
+        self.swiglu_limit = configs.swiglu_limit
+        self.swiglu_alpha = configs.swiglu_alpha
 
         # We apply normalisation "before" the MLP block (Pre-LN placement)
-        self.norm = RMSNorm(args.hidden_size, args.norm_eps, device=device)
+        self.norm = RMSNorm(configs.hidden_size, configs.norm_eps, device=device)
 
         # Shape: (hidden_size, num_experts)
         # This means, for example, during a decoding step with a single token,
         # the input will be of shape (Batch_size, 1, hidden_size) @ (hidden_size, num_experts)
         # = (Batch_size, 1, num_experts)
-        self.gate = nn.Linear(args.hidden_size, self.num_experts)
+        self.gate = nn.Linear(configs.hidden_size, self.num_experts)
 
         # This is the first weight matrix which expands the model dimension
         # to the intermediate dimension. Usually, in a normal MLP (like in LLaMA),
@@ -250,9 +251,9 @@ class MLPBlock(nn.Module):
         self.mlp1_weight = nn.Parameter(
             torch.empty(
                 (
-                    args.num_experts,
-                    args.intermediate_size * 2,
-                    args.hidden_size,
+                    configs.num_experts,
+                    configs.intermediate_size * 2,
+                    configs.hidden_size,
                 ),
                 device=device,
                 dtype=torch.bfloat16
@@ -264,8 +265,8 @@ class MLPBlock(nn.Module):
         self.mlp1_bias = nn.Parameter(
             torch.empty(
                 (
-                    args.num_experts,
-                    args.intermediate_size * 2
+                    configs.num_experts,
+                    configs.intermediate_size * 2
                 ),
                 device=device,
                 dtype=torch.bfloat16
@@ -278,9 +279,9 @@ class MLPBlock(nn.Module):
         self.mlp2_weight = nn.Parameter(
             torch.empty(
                 (
-                    args.num_experts,
-                    args.hidden_size,
-                    args.intermediate_size,
+                    configs.num_experts,
+                    configs.hidden_size,
+                    configs.intermediate_size,
                 ),
                 device=device,
                 dtype=torch.bfloat16
@@ -292,8 +293,8 @@ class MLPBlock(nn.Module):
         self.mlp2_bias = nn.Parameter(
             torch.empty(
                 (
-                    args.num_experts,
-                    args.hidden_size
+                    configs.num_experts,
+                    configs.hidden_size
                 ),
                 device=device,
                 dtype=torch.bfloat16
@@ -350,8 +351,7 @@ class MLPBlock(nn.Module):
         # Einsum: "btki,btkhi->btkh"
         # Output: (Batch_size, Seq_len, experts_per_token, hidden_size)
         t = torch.einsum("btki,btkhi->btkh", t, mlp2_weight) + mlp2_bias
-        t = swiglu(t, alpha=self.swiglu_alpha, limit=self.swiglu_limit)
-
+    
         # Weighted sum of expert outputs
         # (Batch_size, Seq_len, experts_per_token, hidden_size)
         # weighted by (Batch_size, Seq_len, experts_per_token)
@@ -363,18 +363,63 @@ class MLPBlock(nn.Module):
         return x + t
     
 class TransformerBlock(nn.Module):
-    def __init__(self, args: ModelArgs, layer_idx, device: torch.device | None = None):
+    def __init__(self, configs: ModelConfigs, layer_idx, device: torch.device | None = None):
         super().__init__()
-        self.args = ModelArgs
+        self.configs = configs
         # We pass layer_idx to each block because from the paper: "Following GPT-3, attention blocks 
         # alternate between banded window and fully dense patterns [10][11], where the bandwidth is 128 tokens."
         self.layer_idx = layer_idx
         self.device = device
 
-        self.attn = AttentionBlock(args, layer_idx, device)
-        self.mlp = MLPBlock(args, layer_idx, device)
+        self.attn = AttentionBlock(configs, layer_idx, device)
+        self.mlp = MLPBlock(configs, layer_idx, device)
 
     def forward(self, x: torch.Tensor, cache: Cache | None = None) -> torch.Tensor:
         x = self.attn(x, cache=cache)
         x = self.mlp(x)
         return x
+    
+class Transformer(nn.Module):
+    def __init__(self, configs: ModelConfigs, device: torch.device | None = None):
+        super().__init__()
+        self.configs = configs
+        # Define the embedding "lookup" table. We want all tokens in the vocab to have an embedding vector
+        # of hidden_size dimension holding its semantic meaning (no position info here!)
+        self.embedding = nn.Embedding(
+            configs.vocab_size, configs.hidden_size, device=device, dtype=torch.bfloat16
+        )
+
+        self.block = nn.ModuleList() 
+        for layer_idx in range(configs.num_hidden_layers):
+            self.block.append(TransformerBlock(configs, layer_idx, device))
+        
+        # The final RMSNorm before output linear
+        self.norm = RMSNorm(configs.hidden_size, configs.norm_eps, device=device)
+        self.unembedding = nn.Linear(
+            configs.hidden_size,
+            configs.vocab_size,
+            bias=False,
+            device=device,
+            dtype=torch.bfloat16
+        )
+
+    def forward(self, x: torch.Tensor, caches: list[Cache] | None = None) -> torch.Tensor:
+        # KV caches
+        # If not caches are provided we will have: caches = [None, None, ..., None]  (24 Nones)
+        # If provided: caches = [cache_0, cache_1, cache_2, ..., cache_23]
+        caches=caches or [None] * len(self.block)
+        with record_function("embdedding"):
+            # (B, Seq_len) --> (B, Seq_len, hidden_size)
+            x = self.embedding(x)
+        # Consecutively apply all the layers
+        for block, cache in zip(self.block, caches):
+            with record_function("block"):
+                # (B, Seq_len, hidden_size) -> (B, Seq_len, hidden_size)
+                x = block(x, cache=cache)
+        with record_function("norm_f"):
+            # (B, Seq_len, hidden_size) -> (B, Seq_len, hidden_size)
+            x = self.norm(x)
+            with record_function("unembedding"):
+                # (B, Seq_len, hidden_size) -> (B, Seq_len, vocab_size)
+                x = self.unembedding(x)
+        return x.float()
