@@ -513,7 +513,44 @@ $$
 
 Note that each token has its own distinct query, key, and value vectors, ensuring that each head learns to specialise in a particular aspect of the attention pattern such as local syntactic relations, global context, or specific token dependencies.
 
-### 5.3 Grouped Query Attention (GQA)
-### 5.4 Key-Value (KV) Caching
+### 5.3 Key-Value (KV) Caching
+LLM training and inference have fundamentally different bottlenecks. Training is typically compute-bound, while inference especially autoregressive decoding is memory-bound.  
+
+During inference, the GPU must repeatedly load model weights from HBM and read the growing KV cache. Since each decode step processes only a single token but requires loading all weights, arithmetic intensity is low, and the GPU spends more time moving data than computing. HBM, while large, has limited bandwidth, creating a bottleneck.  
+
+The sequential nature of autoregressive generation exacerbates this: to generate token *t + 1*, we need all previous tokens *1 … t*. This severely underutilises GPU parallelism, as we cannot decode multiple tokens independently (Considering naive decoding here, as there are other optimisations that sort of parallelise this process)
+
+KV caching is the core optimisation that makes decoding practical. In the attention mechanism, each new token’s computation requires the key (K) and value (V) tensors of all previous tokens. Without caching, we would recompute these tensors for the entire sequence at every step, which is wasteful and prohibitively slow.  
+
+Instead, we cache K and V tensors in GPU memory:  
+
+- During **prefill**, K and V for all input tokens are computed and stored.  
+- During **decode**, each new token’s K and V are appended to the cache.  
+- Subsequent steps simply read from this cache rather than recomputing.  
+
+This transforms what would be *O(n²)* recomputation into *O(n)* memory reads, making generation feasible.
+
+(Put Image)
+
+### 5.4 Grouped Query Attention (GQA)
+
+While the KV cache avoids redundant computations, the memory-bandwidth cost of repeatedly loading and updating the K and V tensors remains a bottleneck. With **Multi-Head Attention (MHA)**, each head maintains its own K and V projections, so both storage and bandwidth scale directly with the number of heads. For large models, this makes the KV cache one of the main bottlenecks in inference.  
+
+To reduce these costs, several attention mechanisms have been proposed that aim to shrink the KV footprint or reduce memory transfers while preserving model quality.  
+
+[Multi-Query Attention (MQA)]((https://arxiv.org/abs/1911.02150)), introduced by Noam Shazeer (one of the original *Attention Is All You Need* authors), took an aggressive approach: use a single shared set of key and value projections across all query heads. This significantly reduced memory bandwidth costs and sped up decoding, as keys and values only needed to be loaded once per layer rather than once per head.  
+
+However, MQA’s simplification came at a cost to model quality. While query heads could still learn different attention patterns, they all attended to the same key-value representations. This reduced representational diversity as one of MHA’s strengths is that different heads can extract different features from different subspaces. By forcing all queries to “look at” the same keys and values, MQA limited the model’s ability to capture nuanced relationships, leading to degraded performance.  
+
+**Grouped Query Attention (GQA)**, introduced in [*GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints*](https://arxiv.org/abs/2305.13245), provides a middle ground. GQA divides query heads into **G groups**, each sharing a single key head and value head. This balances MHA’s expressiveness with MQA’s efficiency:  
+
+- **GQA-1** (one group) is equivalent to MQA  
+- **GQA-H** (H groups, where H = number of heads) is equivalent to MHA  
+- **GQA-G** (intermediate grouping) provides a tunable trade-off  
+
+In practice, GQA achieves most of MQA’s speed and memory benefits while maintaining model quality much closer to full MHA striking a good balance and therefore a solid choice for SOTA LLMs.
+
+(Put image)
+
 ### 5.5 Banded (Sliding Window) Attention
 ### 5.6 Attention Sinks
