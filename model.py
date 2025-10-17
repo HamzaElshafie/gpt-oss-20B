@@ -231,7 +231,14 @@ class Cache:
 class AttentionBlock(nn.Module):
     def __init__(self, configs: ModelConfigs, layer_idx: int = 0, device: torch.device | None = None):
         super().__init__()
+        self.head_dim = configs.head_dim
+        self.num_attention_heads = configs.num_attention_heads
+        self.num_key_value_heads = configs.num_key_value_heads
+        # Apply sliding window (banded attention) to every other layer
+        self.sliding_window = configs.sliding_window if layer_idx % 2 == 0 else 0
+        self.layer_idx = layer_idx
         
+
     def forward(self, x: torch.Tensor, cache: Cache | None = None) -> torch.Tensor:
         pass
     

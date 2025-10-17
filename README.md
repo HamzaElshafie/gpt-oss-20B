@@ -29,7 +29,14 @@ A PyTorch implementation of the [GPT-OSS-20B](https://arxiv.org/pdf/2508.10925) 
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.5.3 [The "Length Scaling" Trick](#353-the-length-scaling-trick)  
 4. [Mixture-of-Experts (MoE)](#4-mixture-of-experts-moe)  
 &nbsp;&nbsp;&nbsp;&nbsp;4.1 [Experts](#41-experts)  
-&nbsp;&nbsp;&nbsp;&nbsp;4.2 [Gating Mechanism](#42-gating-mechanism)
+&nbsp;&nbsp;&nbsp;&nbsp;4.2 [Gating Mechanism](#42-gating-mechanism)  
+5. [Self-Attention](#5-self-attention)  
+&nbsp;&nbsp;&nbsp;&nbsp;5.1 [Scaled Dot-Product Attention](#51-scaled-dot-product-attention)  
+&nbsp;&nbsp;&nbsp;&nbsp;5.2 [Multi-Head Attention (MHA)](#52-multi-head-attention-mha)  
+&nbsp;&nbsp;&nbsp;&nbsp;5.3 [Grouped Query Attention (GQA)](#53-grouped-query-attention-gqa)  
+&nbsp;&nbsp;&nbsp;&nbsp;5.4 [Key-Value (KV) Caching](#54-key-value-kv-caching)  
+&nbsp;&nbsp;&nbsp;&nbsp;5.5 [Banded (Sliding Window) Attention](#55-banded-sliding-window-attention)  
+&nbsp;&nbsp;&nbsp;&nbsp;5.6 [Attention Sinks](#56-attention-sinks)
 
 ## 1. Setup Instructions
 
@@ -462,3 +469,51 @@ $$
 Here, the gating layer’s final output $G(x)_i$ is used as the weight when averaging the selected experts’ outputs to compute the MoE layer’s final output. If $G(x)_i$ is zero, we can forgo computing the expert function $E_i(x)$ entirely, which is the source of sparsity.
 
 **Top-k** specifies how many experts are selected to be active per input token during inference. For example, Top-1 gating means each token is directed to one expert, Top-2 to two experts, and so on. For GPT-OSS-20B,based on `ModelArgs`, we have a total of $n=32$ experts but implements **Top-4** gating, meaning that only 4 of the available experts are activated for each token.
+
+## 5. Self-Attention
+### 5.1 Scaled Dot-Product Attention
+
+In transformer-based architectures, attention heads are essential for learning long-range dependencies. The traditional *Multi-Head Attention (MHA)* mechanism introduced in the [*Attention Is All You Need*](https://arxiv.org/pdf/1706.03762) paper first formalised this concept. It describes attention as:
+
+> An attention function maps a query and a set of key–value pairs to an output, where the query, keys, values, and output are all vectors. The output is computed as a weighted sum of the values, where the weight assigned to each value is determined by a compatibility function of the query with the corresponding key.
+
+At its core, the attention mechanism computes how similar each query vector is to all key vectors through a dot product. The resulting scores determine how much each token should attend to others:
+
+$$
+\text{Attention}(Q, K, V) = \text{softmax}(QK^{\top})V
+$$
+
+However, when applied in practice, particularly within each attention head,these dot products can become large when the vector dimensionality is high, leading to small gradients after the softmax. To counter this, we scale the dot products by the inverse square root of the per-head dimension, giving rise to the **scaled dot-product attention** used inside Multi-Head Attention:
+
+$$
+\text{Attention}(Q, K, V) = \text{softmax}\!\left(\frac{QK^{\top}}{\sqrt{d_k}}\right)V
+$$
+
+Here, $d_k$ corresponds to the dimensionality of each head (`head_dim` in code).
+
+This formulation applies primarily during **training** and the **prefill phase** of inference. During **single-token decoding**, the same operation reduces to a vector–matrix multiplication since the query represents only the current token.  
+
+
+### 5.3 Multi-Head Attention (MHA)
+
+Instead of computing a single attention function over the entire `hidden_size`, the model splits this dimension into multiple smaller **heads**. Each head has its own set of learnable parameters for $W_Q$, $W_K$, and $W_V$, allowing the model to capture different types of relationships in parallel. In implementation, these projections are usually stored within the same tensor, with an additional dimension representing the number of heads.
+
+Each head operates on sub-vectors of dimension `head_dim` and computes scaled dot-product attention independently. The results from all heads are then concatenated and projected back to the model dimension through an output projection matrix $W_O$:
+
+$$
+\text{MultiHead}(Q, K, V) = \text{Concat}(\text{head}_1, \dots, \text{head}_h)W_O
+$$
+
+where each head performs:
+
+$$
+\text{head}_i = \text{Attention}(QW_Q^{(i)}, KW_K^{(i)}, VW_V^{(i)}) = 
+\text{softmax}\!\left(\frac{Q_i K_i^{\top}}{\sqrt{\text{head\_dim}}}\right)V_i
+$$
+
+Note that each token has its own distinct query, key, and value vectors, ensuring that each head learns to specialise in a particular aspect of the attention pattern — such as local syntactic relations, global context, or specific token dependencies.
+
+### 5.3 Grouped Query Attention (GQA)
+### 5.4 Key-Value (KV) Caching
+### 5.5 Banded (Sliding Window) Attention
+### 5.6 Attention Sinks
