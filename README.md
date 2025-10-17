@@ -511,7 +511,7 @@ $$
 \text{softmax}\!\left(\frac{Q_i K_i^{\top}}{\sqrt{\text{head\textunderscore dim}}}\right)V_i
 $$
 
-Note that each token has its own distinct query, key, and value vectors, ensuring that each head learns to specialise in a particular aspect of the attention pattern — such as local syntactic relations, global context, or specific token dependencies.
+Note that each token has its own distinct query, key, and value vectors, ensuring that each head learns to specialise in a particular aspect of the attention pattern such as local syntactic relations, global context, or specific token dependencies.
 
 ### 5.3 Grouped Query Attention (GQA)
 ### 5.4 Key-Value (KV) Caching
