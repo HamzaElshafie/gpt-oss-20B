@@ -508,7 +508,7 @@ where each head performs:
 
 $$
 \text{head}_i = \text{Attention}(QW_Q^{(i)}, KW_K^{(i)}, VW_V^{(i)}) = 
-\text{softmax}\!\left(\frac{Q_i K_i^{\top}}{\sqrt{\text{head\_dim}}}\right)V_i
+\text{softmax}\!\left(\frac{Q_i K_i^{\top}}{\sqrt{\text{head\textunderscore dim}}}\right)V_i
 $$
 
 Note that each token has its own distinct query, key, and value vectors, ensuring that each head learns to specialise in a particular aspect of the attention pattern — such as local syntactic relations, global context, or specific token dependencies.
