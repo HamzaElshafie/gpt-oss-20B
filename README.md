@@ -33,8 +33,8 @@ A PyTorch implementation of the [GPT-OSS-20B](https://arxiv.org/pdf/2508.10925) 
 5. [Self-Attention](#5-self-attention)  
 &nbsp;&nbsp;&nbsp;&nbsp;5.1 [Scaled Dot-Product Attention](#51-scaled-dot-product-attention)  
 &nbsp;&nbsp;&nbsp;&nbsp;5.2 [Multi-Head Attention (MHA)](#52-multi-head-attention-mha)  
-&nbsp;&nbsp;&nbsp;&nbsp;5.3 [Grouped Query Attention (GQA)](#53-grouped-query-attention-gqa)  
-&nbsp;&nbsp;&nbsp;&nbsp;5.4 [Key-Value (KV) Caching](#54-key-value-kv-caching)  
+&nbsp;&nbsp;&nbsp;&nbsp;5.3 [Key-Value (KV) Caching](#53-key-value-kv-caching)  
+&nbsp;&nbsp;&nbsp;&nbsp;5.4 [Grouped Query Attention (GQA)](#54-grouped-query-attention-gqa)  
 &nbsp;&nbsp;&nbsp;&nbsp;5.5 [Banded (Sliding Window) Attention](#55-banded-sliding-window-attention)  
 &nbsp;&nbsp;&nbsp;&nbsp;5.6 [Attention Sinks](#56-attention-sinks)
 
@@ -494,7 +494,7 @@ Here, $d_k$ corresponds to the dimensionality of each head (`head_dim` in code).
 This formulation applies primarily during **training** and the **prefill phase** of inference. During **single-token decoding**, the same operation reduces to a vector–matrix multiplication since the query represents only the current token.  
 
 
-### 5.3 Multi-Head Attention (MHA)
+### 5.2 Multi-Head Attention (MHA)
 
 Instead of computing a single attention function over the entire `hidden_size`, the model splits this dimension into multiple smaller **heads**. Each head has its own set of learnable parameters for $W_Q$, $W_K$, and $W_V$, allowing the model to capture different types of relationships in parallel. In implementation, these projections are usually stored within the same tensor, with an additional dimension representing the number of heads.
 
@@ -530,7 +530,9 @@ Instead, we cache K and V tensors in GPU memory:
 
 This transforms what would be *O(n²)* recomputation into *O(n)* memory reads, making generation feasible.
 
-(Put Image)
+<p align="center">
+<img src="https://github.com/user-attachments/assets/756e2465-608f-4513-bfab-3c0854499e5c" alt="Image 10" width="50%">
+</p>
 
 ### 5.4 Grouped Query Attention (GQA)
 
@@ -550,7 +552,9 @@ However, MQA’s simplification came at a cost to model quality. While query hea
 
 In practice, GQA achieves most of MQA’s speed and memory benefits while maintaining model quality much closer to full MHA striking a good balance and therefore a solid choice for SOTA LLMs.
 
-(Put image)
+<p align="center">
+<img src="https://github.com/user-attachments/assets/e318ea0a-2d7c-451f-a8d3-255c89f39fe6" alt="Image 10" width="70%">
+</p>
 
 ### 5.5 Banded (Sliding Window) Attention
 ### 5.6 Attention Sinks
