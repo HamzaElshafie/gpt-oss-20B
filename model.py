@@ -41,7 +41,7 @@ class RMSNorm(nn.Module):
         super().__init__()
         self.eps = eps
         self.hidden_size = hidden_size
-        self.scale = nn.Parameter(torch.ones(hidden_size))
+        self.scale = nn.Parameter(torch.ones(hidden_size, device=device, dtype=torch.float32))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Shape: (Batch, Seq_len, hidden_size)
@@ -231,6 +231,7 @@ class Cache:
 class AttentionBlock(nn.Module):
     def __init__(self, configs: ModelConfigs, layer_idx: int = 0, device: torch.device | None = None):
         super().__init__()
+        
     def forward(self, x: torch.Tensor, cache: Cache | None = None) -> torch.Tensor:
         pass
     
