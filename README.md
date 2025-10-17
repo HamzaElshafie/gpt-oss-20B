@@ -486,7 +486,7 @@ $$
 However, when applied in practice, particularly within each attention head,these dot products can become large when the vector dimensionality is high, leading to small gradients after the softmax. To counter this, we scale the dot products by the inverse square root of the per-head dimension, giving rise to the **scaled dot-product attention** used inside Multi-Head Attention:
 
 $$
-\text{Attention}(Q, K, V) = \text{softmax}\!\left(\frac{QK^{\top}}{\sqrt{d_k}}\right)V
+\text{Attention}(Q, K, V) = \text{softmax}\\left(\frac{QK^{\top}}{\sqrt{d_k}}\right)V
 $$
 
 Here, $d_k$ corresponds to the dimensionality of each head (`head_dim` in code).
@@ -507,8 +507,8 @@ $$
 where each head performs:
 
 $$
-\text{head}_i = \text{Attention}(QW_Q^{(i)}, KW_K^{(i)}, VW_V^{(i)}) = 
-\text{softmax}\!\left(\frac{Q_i K_i^{\top}}{\sqrt{\text{head\textunderscore dim}}}\right)V_i
+\text{head}_i = \text{Attention}(QW_Q^{(i)}, KW_K^{(i)}, VW_V^{(i)}) =
+\text{softmax}\!\left(\frac{Q_i K_i^{\top}}{\sqrt{d_k}}\right)V_i
 $$
 
 Note that each token has its own distinct query, key, and value vectors, ensuring that each head learns to specialise in a particular aspect of the attention pattern such as local syntactic relations, global context, or specific token dependencies.
