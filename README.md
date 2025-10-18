@@ -578,7 +578,10 @@ Sliding Window Attention handles the KV cache by keeping a rolling cache of all 
 
 This effect is clearly visible in the following figures, taken from experiments by Tom Aarsen in his [blog](https://huggingface.co/blog/tomaarsen/attention-sinks#window-attention) on Hugging Face, where the window size was set to 1024 for the experiment.
 
-(Put fig)
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/70dfb282-ed2d-4016-97dc-72d00447038f" alt="Image 5" width="40%">
+  <img src="https://github.com/user-attachments/assets/de82dbd6-e414-43cc-bde0-27e93d32947b" alt="Image 5" width="40%">
+</p>
 
 
 ### 5.6 Attention Sinks
@@ -595,7 +598,9 @@ the concept of “attention sink". The nature of the SoftMax function (Equation 
 tokens from having zero values. This requires aggregating some information from other tokens across
 all heads in all layers, even if the current embedding has sufficient self-contained information for its prediction. Consequently, the model tends to dump unnecessary attention values to specific tokens. A similar observation has been made in the realm of quantization outliers (Xiao et al., 2023; Bondarenko et al., 2023), leading to the proposal of SoftMax-Off-by-One (Miller, 2023) as a potential remedy.
 
-(Put image)
+<p align="center">
+<img src="https://github.com/user-attachments/assets/b511ab90-cf8c-462b-b8f8-a609c2707335" alt="Image 10" width="80%">
+</p>
 
 **But why the initial tokens specifically?**
 
@@ -606,6 +611,11 @@ initial tokens are more easily trained to serve as attention sinks, capturing un
 
 Therefore, they proposed a remedy to this attention sink phenomenon through the intentional inclusion of a global trainable attention sink token, denoted as a **“Sink Token”**, which would serve as a repository for unnecessary attention scores.
 
-Experiments demonstrating the effectiveness of this subtle enhancement can be seen in the paper, and this is the mechanism used in the sliding window attention layers of GPT-OSS. A comparison between dense (a), sliding window (b), and the sliding window with sink token (c) can be seen in the figure below.
+Experiments demonstrating the effectiveness of this subtle enhancement can be seen in the paper, and this is the mechanism used in the sliding window attention layers of GPT-OSS. A comparison between dense (a), sliding window (b), and the sliding window with sink token (d) can be seen in the figure below.
 
-(Put image)
+
+<p align="center">
+<img src="https://github.com/user-attachments/assets/38dfce22-a852-43ff-b34a-d3587124cef6" alt="Image 10" width="80%">
+</p>
+
+
