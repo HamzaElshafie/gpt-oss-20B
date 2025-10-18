@@ -557,4 +557,15 @@ In practice, GQA achieves most of MQA’s speed and memory benefits while mainta
 </p>
 
 ### 5.5 Banded (Sliding Window) Attention
+
+Sliding window attention was a structural innovation first introduced in the **LongFormer** paper ([Beltagy, Peters, and Cohan (2020)](https://arxiv.com/pdf/2004.05150)). We know that the traditional self-attention mechanism, by its definition, results in a computational complexity of $\text{O}(n^2)$, where $n$ is the sequence length.
+
+Even highly-optimised variants like **Flash Attention** while drastically improving **throughput** by cleverly utilising the GPU's memory hierarchy and parallelism to reduce the debilitating **memory traffic** between slow **HBM** and fast **SRAM**, they still do not change this fundamental complexity.
+
+Flash Attention is a powerful **systems optimisation**; it executes the $\text{O}(n^2)$ calculation faster. With less memory movement (Which is always not a good thing!)
+
+Conversely, sliding window attention introduces a genuine **algorithmic optimisation** by fundamentally altering the attention pattern itself. From the paper:
+
+> Sliding Window: Given the recognised importance of local context (Kovaleva et al., 2019), this attention pattern strategically **employs a fixed-size window** around each token. By stacking multiple layers of such local attention, the model builds a large **receptive field**, allowing top layers to effectively aggregate information across the entire input, conceptually similar to how convolutional layers operate in CNNs (Wu et al., 2019). Given a fixed window size $w$, each token is restricted to attending to, for example, $\frac{1}{2}w$ tokens on each side (Fig. 2b). This structural masking successfully reduces the computation complexity of the pattern from quadratic to **linear** $\text{O}(n \cdot w)$, enabling efficient processing for massive sequence lengths.
+
 ### 5.6 Attention Sinks
