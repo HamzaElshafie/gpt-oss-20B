@@ -569,7 +569,7 @@ Conversely, sliding window attention introduces a genuine **algorithmic optimisa
 > Sliding Window: Given the recognised importance of local context (Kovaleva et al., 2019), this attention pattern strategically **employs a fixed-size window** around each token. By stacking multiple layers of such local attention, the model builds a large **receptive field**, allowing top layers to effectively aggregate information across the entire input, conceptually similar to how convolutional layers operate in CNNs (Wu et al., 2019). Given a fixed window size $w$, each token is restricted to attending to, for example, $\frac{1}{2}w$ tokens on each side (Fig. 2b). This structural masking successfully reduces the computation complexity of the pattern from quadratic to **linear** $\text{O}(n \cdot w)$, enabling efficient processing for massive sequence lengths.
 
 <p align="center">
-<img src="https://github.com/user-attachments/assets/bebf7633-c049-440a-8984-ccb648b2dba2" alt="Image 10" width="80%">
+<img src="https://github.com/user-attachments/assets/bebf7633-c049-440a-8984-ccb648b2dba2" alt="Image 10" width="90%">
 </p>
 
 
