@@ -572,5 +572,40 @@ Conversely, sliding window attention introduces a genuine **algorithmic optimisa
 <img src="https://github.com/user-attachments/assets/bebf7633-c049-440a-8984-ccb648b2dba2" alt="Image 10" width="90%">
 </p>
 
+For the rolling KV cache during decoding, in the dense or original attention version, we must store the keys and values for *all* previous tokens, as each new query needs to attend to all previous tokens. As mentioned, this consumes a large amount of memory.
+
+Sliding Window Attention handles the KV cache by keeping a rolling cache of all Key/Value states of all previous tokens within the **window size**. Once this window is exceeded, KV states outside this range are evicted from the cache. This mechanism causes the memory usage to grow linearly up to the **window size** and then **remain constant**. However, a limitation of this approach is that the log perplexity of the models immediately shoots up once the context length exceeds its window size.
+
+This effect is clearly visible in the following figures, taken from experiments by Tom Aarsen in his [blog](https://huggingface.co/blog/tomaarsen/attention-sinks#window-attention) on Hugging Face, where the window size was set to 1024 for the experiment.
+
+(Put fig)
+
 
 ### 5.6 Attention Sinks
+
+The preceding results lead us to discuss a phenomenon discovered in the paper **[Efficient Streaming Language Models with Attention Sinks](https://arxiv.org/pdf/2309.17453)**, known as **Attention Sinks**. The authors surprisingly found that a large amount of the attention score is consistently allocated to the initial tokens, irrespective of their relevance to the language modelling task. Given that the sliding window evicts these initial tokens once the window size is exceeded, this leads to the significant degradation in the model's fluency, as seen in the earlier experiment.
+
+To demonstrate that those initial tokens are probably not even semantically useful but rather function purely as attention sinks, the authors conducted a test where they swapped the first four tokens with linebreak "\n" tokens. Observations still indicated that the model significantly emphasised these initial linebreak tokens, and adding them back restored the modelling perplexity.
+
+To explain why the model disproportionately focuses on such initial tokens, their explanation is:
+
+> LLMs attend to Initial Tokens as Attention Sinks. To explain why the model disproportionately
+focuses on initial tokens—regardless of their semantic relevance to language modeling, we introduce
+the concept of “attention sink". The nature of the SoftMax function (Equation 1) prevents all attended
+tokens from having zero values. This requires aggregating some information from other tokens across
+all heads in all layers, even if the current embedding has sufficient self-contained information for its prediction. Consequently, the model tends to dump unnecessary attention values to specific tokens. A similar observation has been made in the realm of quantization outliers (Xiao et al., 2023; Bondarenko et al., 2023), leading to the proposal of SoftMax-Off-by-One (Miller, 2023) as a potential remedy.
+
+(Put image)
+
+**But why the initial tokens specifically?**
+
+> Our explanation is straightforward:
+Due to the sequential nature of autoregressive language modeling, initial tokens are visible to all
+subsequent tokens, while later tokens are only visible to a limited set of subsequent tokens. As a result,
+initial tokens are more easily trained to serve as attention sinks, capturing unnecessary attention.
+
+Therefore, they proposed a remedy to this attention sink phenomenon through the intentional inclusion of a global trainable attention sink token, denoted as a **“Sink Token”**, which would serve as a repository for unnecessary attention scores.
+
+Experiments demonstrating the effectiveness of this subtle enhancement can be seen in the paper, and this is the mechanism used in the sliding window attention layers of GPT-OSS. A comparison between dense (a), sliding window (b), and the sliding window with sink token (c) can be seen in the figure below.
+
+(Put image)
