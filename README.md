@@ -106,8 +106,7 @@ The self-attention mechanism is highly optimised for efficiency and context leng
 * Attention Bias: Each attention head includes a learned bias in the denominator of the softmax, similar to concepts like Attention Sinks. This feature allows the attention mechanism to selectively **pay no attention** to certain tokens, providing an additional learned control signal.
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/e7d20729-328b-444d-9e1a-5cb2d6997995" alt="Image 5" width="50%">
-  <img src="https://github.com/user-attachments/assets/f6b75744-5bb2-4d03-a946-b0abcb985750" alt="Image 5" width="42%">
+  <img src="https://github.com/user-attachments/assets/e7d20729-328b-444d-9e1a-5cb2d6997995" alt="Image 5" width="60%">
 </p>
 
 ### 2.2 Mixture-of-Experts (MoE)
