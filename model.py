@@ -168,7 +168,6 @@ class RotaryEmbedding(nn.Module):
         sin = freqs.sin() * concentration
         return cos, sin
     
-    @record_function("rotate")
     def _rotate(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor):
         # Query or Key tensors to rotate
         # Shape: (max_context_length, head_dim / 2) --> (1, max_context_length, 1, head_dim / 2). 1's for broadcasting
@@ -187,7 +186,6 @@ class RotaryEmbedding(nn.Module):
         # Shape: (Batch_size, Seq_len, n_heads, head_dim)
         return torch.cat((o1, o2), dim=-1)
     
-    @record_function("rope")
     def forward(self, query: torch.Tensor, key: torch.Tensor, offset: torch.LongTensor):
         batch_size, num_tokens, num_heads, head_dim = query.shape
         batch_size, num_tokens, num_key_value_heads, head_dim = key.shape
@@ -221,11 +219,11 @@ class Cache:
         self.v = self.v.repeat_interleave(n, dim=0)
     
     def extend(self, k, v):
-        n_new = k.shape[1]
+        n_new = k.shape[1] # seq_len or t
         indices = torch.arange(0, n_new, device=k.device, dtype=torch.long) + self.offset
-        self.k.index_copy_(1, indices, k)
+        self.k.index_copy_(1, indices, k) # write k into cache at positions [offset .. offset+t-1]
         self.v.index_copy_(1, indices, v)
-        self.offset.add_(n_new)
+        self.offset.add_(n_new) # offset += t
         return self.k, self.v
     
 class AttentionBlock(nn.Module):
@@ -234,14 +232,121 @@ class AttentionBlock(nn.Module):
         self.head_dim = configs.head_dim
         self.num_attention_heads = configs.num_attention_heads
         self.num_key_value_heads = configs.num_key_value_heads
+        # Indicates number of groups
+        self.num_groups = self.num_attention_heads // self.num_key_value_heads
         # Apply sliding window (banded attention) to every other layer
         self.sliding_window = configs.sliding_window if layer_idx % 2 == 0 else 0
         self.layer_idx = layer_idx
+
+        # Each attention head gets one sink scalar parameter
+        # sinks = [sink_0, sink_1, sink_2, ..., sink_{num_attention_heads-1}]
+        self.sinks = nn.Parameter(
+            torch.empty(configs.num_attention_heads, device=device, dtype=torch.bfloat16)
+        )
         
+        self.norm = RMSNorm(configs.hidden_size, configs.norm_eps, device=device)
+
+        # qkv_dim = head_dim * (num_attention_heads (Q) + num_key_value_heads (K) + num_key_value_heads (V))
+        # = head_dim * (num_attention_heads + 2 * num_key_value_heads)
+        qkv_dim = configs.head_dim * (
+            configs.num_attention_heads + 2 * configs.num_key_value_heads
+        )
+
+        # We concatenate the projection weights of q, k and v all in the same matrix
+        self.qkv = nn.Linear(
+            configs.hidden_size, qkv_dim, device=device, dtype=torch.bfloat16
+        )
+
+        self.out = nn.Linear(
+            configs.num_attention_heads * configs.head_dim, 
+            configs.hidden_size, 
+            device=device,
+            dtype=torch.bfloat16
+        )
+
+        # Softmax scale
+        self.sm_scale = 1 / math.sqrt(configs.head_dim)
+
+        self.rope = RotaryEmbedding(
+            configs.head_dim,
+            configs.rope_theta,
+            torch.float32,
+            initial_context_length=configs.initial_context_length,
+            max_content_length=configs.initial_context_length * int(configs.rope_scaling_facto),
+            scaling_factor=configs.rope_scaling_factor,
+            ntk_alpha=configs.rope_ntk_alpha,
+            ntk_beta=configs.rope_ntk_beta,
+            device=device
+        )
+
+    def sdpa(self, Q, K, V, S, sm_scale, sliding_window=0):
+        pass
 
     def forward(self, x: torch.Tensor, cache: Cache | None = None) -> torch.Tensor:
-        pass
-    
+        # Shape: (batch, seq_len, hidden_size)
+        batch_size, seq_len, hidden_size = x.shape
+        # Pre-LN norm. Shape unchanged
+        t = self.norm(x)
+        # (batch, seq_len, hidden_size) -> (batch, seq_len, qkv_dim)
+        qkv = self.qkv(t)
+
+        # Keep first (num_attention_heads * head_dim) columns for Q
+        # Shape: (batch, seq_len, num_attention_heads * self.head_dim)
+        q = qkv[:, :, :self.num_attention_heads * self.head_dim].contiguous()
+
+        # Second slice for k 
+        # Shape: (batch, seq_len, num_key_value_heads * self.head_dim)
+        k = qkv[
+            :, :,
+            self.num_attention_heads * 
+            self.head_dim : (self.num_attention_heads + self.num_key_value_heads)
+            * self.head_dim,
+        ].contiguous()
+
+        # Thirdn slice for v -> last slice
+        # Shape: (batch, seq_len, num_key_value_heads * self.head_dim)
+        v = qkv[
+            :, :,
+            (self.num_attention_heads + self.num_key_value_heads)
+            * self.head_dim : (self.num_attention_heads + 2 * self.num_key_value_heads)
+            * self.head_dim
+        ].contiguous()
+
+        # Split across heads
+        # Shape: (batch, seq_len, num_attention_heads * self.head_dim) -> (batch, seq_len, num_attention_heads, self.head_dim)
+        q = q.view(batch_size, seq_len, self.num_attention_heads, self.head_dim)
+        # Shape: (batch, seq_len, num_key_value_heads * self.head_dim) -> Shape: (batch, seq_len, num_key_value_heads, self.head_dim)
+        k = k.view(batch_size, seq_len, self.num_key_value_heads, self.head_dim)
+        v = v.view(batch_size, seq_len, self.num_key_value_heads, self.head_dim)
+
+        if cache is not None:
+            offset = cache.offset.clone()
+            # Apply RoPE using absolute positions offset : offset_seq_len - 1. RoPE doesnt change shape
+            q, k = self.rope(q, k, offset=offset)
+            k, v = cache.extend(k, v) # Append new kv vectors to cache and get full cache for attention
+        else:
+            offset = torch.zeros((1,), dtype=torch.long, device=x.device)
+            q, k = self.rope(q, k, offset=offset)
+        
+        
+        # Reshape q such that for each key value head we have `num_groups` query heads that 
+        # will share that key value head. We could this by repeating kv until we have q=k=v
+        # but this is more memory efficient
+        q = q.view(
+            batch_size, 
+            seq_len, 
+            self.num_key_value_heads, 
+            self.num_groups,
+            self.head_dim,
+        )
+
+        t = self.sdpa(q, k, v, self.sinks, self.sm_scale, self.sliding_window, offset=offset)
+        # (batch, seq_len, num_attention_heads * head_dim)
+        t = self.out(t)
+
+        # Apply residual
+        return x + t
+
 def swiglu(x: torch.Tensor, alpha: float, limit: float):
     # Input shape: (Batch_size, Seq_len, experts_per_token, 2 * intermediate_size)
     # The formula for the output of a SwiGLU MLP is:
@@ -442,18 +547,14 @@ class Transformer(nn.Module):
         # If no caches are provided we will have: caches = [None, None, ..., None]  (24 Nones)
         # If provided: caches = [cache_0, cache_1, cache_2, ..., cache_23]
         caches=caches or [None] * len(self.block)
-        with record_function("embedding"):
-            # (B, Seq_len) --> (B, Seq_len, hidden_size)
-            x = self.embedding(x)
+        # (B, Seq_len) --> (B, Seq_len, hidden_size)
+        x = self.embedding(x)
         # Consecutively apply all the layers
         for block, cache in zip(self.block, caches):
-            with record_function("block"):
-                # (B, Seq_len, hidden_size) -> (B, Seq_len, hidden_size)
-                x = block(x, cache=cache)
-        with record_function("norm_f"):
             # (B, Seq_len, hidden_size) -> (B, Seq_len, hidden_size)
-            x = self.norm(x)
-            with record_function("unembedding"):
-                # (B, Seq_len, hidden_size) -> (B, Seq_len, vocab_size)
-                x = self.unembedding(x)
+            x = block(x, cache=cache)
+        # (B, Seq_len, hidden_size) -> (B, Seq_len, hidden_size)
+        x = self.norm(x)
+        # (B, Seq_len, hidden_size) -> (B, Seq_len, vocab_size)
+        x = self.unembedding(x)
         return x.float()
