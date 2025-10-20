@@ -96,7 +96,7 @@ class RotaryEmbedding(nn.Module):
             # stability. It appears this was found emperically
             concentration = 0.1 * math.log(self.scaling_factor) + 1.0 # YaRN concentration
 
-            d_half = self.head_dim / 2 # Ex. 32
+            d_half = self.head_dim // 2 # Ex. 32
             # ============== NTK-by-parts ==============
             # Compute the cutpoints i.e i_β and i_α. Recall formula from documentation of the ration r(i) = L/λ_d 
             # where λ_i = 2π / θ_i. We can write formula as r(i) = L*θ_i / 2π. We know the formula for θ_i already
@@ -272,15 +272,94 @@ class AttentionBlock(nn.Module):
             configs.rope_theta,
             torch.float32,
             initial_context_length=configs.initial_context_length,
-            max_content_length=configs.initial_context_length * int(configs.rope_scaling_facto),
+            max_content_length=configs.initial_context_length * int(configs.rope_scaling_factor),
             scaling_factor=configs.rope_scaling_factor,
             ntk_alpha=configs.rope_ntk_alpha,
             ntk_beta=configs.rope_ntk_beta,
             device=device
         )
 
-    def sdpa(self, Q, K, V, S, sm_scale, sliding_window=0):
-        pass
+    def sdpa(self, Q, K, V, S, sm_scale, sliding_window=0, offset=0):
+        batch_size, seq_len, num_key_value_heads, num_groups, head_dim = Q.shape
+        n_ctx = K.shape[1]
+        assert K.shape == (batch_size, n_ctx, num_key_value_heads, head_dim)
+        assert V.shape == (batch_size, n_ctx, num_key_value_heads, head_dim)
+
+        if isinstance(offset, torch.Tensor):
+            offset = offset.item()
+
+        # Expand KV to match Q's shape
+        K = K.unsqueeze(3).expand(batch_size, n_ctx, num_key_value_heads, num_groups, head_dim)
+        V = V.unsqueeze(3).expand(batch_size, n_ctx, num_key_value_heads, num_groups, head_dim)
+
+        # Reshape sink bias to match grouped attention structure
+        # S begins as (num_attention_heads,) -> one scalar per query head
+        # Each KV head serves 'num_groups' query heads, so reshape into (num_kv_heads, num_groups, 1, 1)
+        # The two trailing 1s are placeholders: first for query positions, second for key positions
+        # Expand to (num_kv_heads, num_groups, seq_len, 1) so:
+        #   - each (KV head, group) has its own sink bias
+        #   - bias repeats across all query tokens (seq_len)
+        #   - final dim stays 1 to broadcast across all keys (n_ctx) when added to logits
+        S = S.reshape(num_key_value_heads, num_groups, 1, 1).expand(num_key_value_heads, num_groups, seq_len, 1)
+
+        # Causal mask aligned with the KV cache
+        # mask has shape (seq_len, n_ctx). Row t corresponds to the query at absolute index offset + t.
+        # torch.triu(..., diagonal=offset + 1) sets everything *above* that diagonal to -inf,
+        # ensuring each query can attend only to its own and all previous keys (never future ones).
+        # The diagonal itself (query attending to itself) remains unmasked (0).
+
+        # Example A  prefill stage (no cache)
+        # offset = 0, seq_len = 4, n_ctx = 4, diagonal = 1
+        #   [0,  -inf, -inf, -inf]
+        #   [0,   0,   -inf, -inf]
+        #   [0,   0,    0,   -inf]
+        #   [0,   0,    0,    0]
+
+        # Example B  cached decoding (offset accounts for cached prefix)
+        # offset = 2, seq_len = 4, n_ctx = 6, diagonal = 3
+        #   [0,   0,   0,  -inf, -inf, -inf]
+        #   [0,   0,   0,   0,   -inf, -inf]
+        #   [0,   0,   0,   0,    0,   -inf]
+        #   [0,   0,   0,   0,    0,    0]
+        mask = torch.triu(Q.new_full((seq_len, n_ctx), -float("inf")), diagonal=offset+1)
+
+        # Apply sliding window. Lets see same example in case of sliding window actiavated
+        # Example B with sliding_window = 3
+        # offset = 2, seq_len = 4, n_ctx = 6
+        # lower mask uses torch.tril(..., diagonal = offset - sliding_window = -1)
+        # final mask becomes a narrow band aligned to the cache
+        #   [0,   0,   0,  -inf, -inf, -inf]
+        #   [-inf,0,   0,   0,   -inf, -inf]
+        #   [-inf,-inf,0,   0,    0,   -inf]
+        #   [-inf,-inf,-inf,0,    0,    0]
+        # If sliding window >= n_ctx, there acctually will be no change to the mask since we still 
+        # would have reached the boundary
+        if sliding_window > 0:
+            mask += torch.tril(
+                mask.new_full((seq_len, n_ctx), -float("inf")), diagonal=offset-sliding_window
+            )
+
+        # Compute attention logits between Q and K
+        # - Q: (batch, seq_len, num_key_value_heads, num_groups, head_dim)
+        # - K: (batch, n_ctx,  num_key_value_heads, num_groups, head_dim)
+        # - shared dim 'd' (head_dim) appears in both inputs but not in output -> summed over (dot product)
+        # - output shape: (batch, num_key_value_heads, num_groups, seq_len, n_ctx)
+        # = for each batch, kv head, and group, you get a (seq_len × n_ctx) matrix of attention logits
+        QK = torch.einsum("bqhmd,bkhmd->bhmqk", Q, K)
+        QK *= sm_scale
+        # mask: (seq_len, n_ctx) -> (batch, num_key_value_heads, num_groups, seq_len, n_ctx)
+        QK += mask.unsqueeze(0).unsqueeze(1).unsqueeze(2)
+        # S: (num_key_value_heads, num_groups, seq_len, 1) -> (batch, num_key_value_heads, num_groups, seq_len, 1)
+        # Concatenate sinks: (batch, n_heads, q_mult, n_tokens, n_ctx+1)
+        QK = torch.cat([QK, S.unsqueeze(0)], dim=-1)
+        # Softmax per row (last dim)
+        W = F.softmax(QK, dim=-1)
+        # Remove the sinks column we appended
+        W = W[..., :-1]
+        # Shape: (batch, seq_len, num_key_value_heads, num_groups, head_dim)
+        attn = torch.einsum("bhmqk, bkhmd->bqhmd", W, V)
+        # Concatenate all heads
+        return attn.reshape(batch_size, seq_len, -1)
 
     def forward(self, x: torch.Tensor, cache: Cache | None = None) -> torch.Tensor:
         # Shape: (batch, seq_len, hidden_size)
@@ -329,7 +408,7 @@ class AttentionBlock(nn.Module):
             q, k = self.rope(q, k, offset=offset)
         
         
-        # Reshape q such that for each key value head we have `num_groups` query heads that 
+        # Reshape q such that for each key_value head we have `num_groups` query heads that 
         # will share that key value head. We could this by repeating kv until we have q=k=v
         # but this is more memory efficient
         q = q.view(
