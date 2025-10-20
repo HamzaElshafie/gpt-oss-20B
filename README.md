@@ -77,7 +77,7 @@ conda activate gptoss
 Install dependencies:
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirments.txt
 ```
 
 ### Download the Original Checkpoint
