@@ -456,7 +456,7 @@ class MLPBlock(nn.Module):
         # This means, for example, during a decoding step with a single token,
         # the input will be of shape (Batch_size, 1, hidden_size) @ (hidden_size, num_experts)
         # = (Batch_size, 1, num_experts)
-        self.gate = nn.Linear(configs.hidden_size, self.num_experts)
+        self.gate = nn.Linear(configs.hidden_size, self.num_experts, device=device, dtype=torch.bfloat16)
 
         # This is the first weight matrix which expands the model dimension
         # to the intermediate dimension. Usually, in a normal MLP (like in LLaMA),
