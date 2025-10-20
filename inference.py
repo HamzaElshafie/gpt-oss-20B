@@ -5,10 +5,10 @@ from dataclasses import dataclass, field
 from model import Transformer, Cache  
 from openai_harmony import load_harmony_encoding, HarmonyEncodingName
 
-@dataclass(frozen=True) 
+@dataclass() 
 class Config:
     """
-    Centralized configuration for the token generator.
+    Centralised configuration for the token generator.
     """
     debug_mode: bool = False
     checkpoint_path: str = "/workspace/gpt-oss-20B/gpt-oss-20b/original"
