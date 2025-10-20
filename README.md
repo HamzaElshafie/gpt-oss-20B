@@ -3,7 +3,9 @@ A PyTorch implementation of the [GPT-OSS-20B](https://arxiv.org/pdf/2508.10925) 
 
 ## Contents
 
-1. [Setup Instructions](#1-setup-instructions)  
+1. [Getting Started](#1-getting-started)  
+&nbsp;&nbsp;&nbsp;&nbsp;1.1 [Setup Instructions](#11-setup-instructions)  
+&nbsp;&nbsp;&nbsp;&nbsp;1.2 [Usage](#12-usage) 
 2. [Model Architecture](#2-model-architecture)  
 &nbsp;&nbsp;&nbsp;&nbsp;2.1 [Attention](#21-attention)  
 &nbsp;&nbsp;&nbsp;&nbsp;2.2 [Mixture-of-Experts (MoE)](#22-mixture-of-experts-moe)  
@@ -38,7 +40,9 @@ A PyTorch implementation of the [GPT-OSS-20B](https://arxiv.org/pdf/2508.10925) 
 &nbsp;&nbsp;&nbsp;&nbsp;5.5 [Banded (Sliding Window) Attention](#55-banded-sliding-window-attention)  
 &nbsp;&nbsp;&nbsp;&nbsp;5.6 [Attention Sinks](#56-attention-sinks)
 
-## 1. Setup Instructions
+## 1. Getting Started
+
+### 1.1 Setup Instructions
 
 ### Remote Setup
 
@@ -96,6 +100,185 @@ hf download openai/gpt-oss-20b \
   --include "tokenizer_config.json" \
   --include "special_tokens_map.json" \
   --local-dir gpt-oss-20b/
+```
+
+## 1.2 Usage
+
+The inference process is controlled by the `Config` dataclass** and executed via the `inference.py` script.
+
+### Configuration 
+
+All key settings including generation parameters, paths, and debugging toggles are managed in one place.
+
+| Field | Description | Type | Example |
+| :--- | :--- | :--- | :--- |
+| `debug_mode` | Global toggle. Controls all `[DEBUG]` prints and token-by-token logging during generation. | `bool` | `True` / `False` |
+| `checkpoint_path` | Local path to the model weights. | `str` | `"/workspace/gpt-oss-20B/..."` |
+| `device` | The PyTorch device for computation (`cuda` for GPU, `cpu` otherwise). | `torch.device` | `torch.device("cuda")` |
+| `prompt` | The input text to condition the generation. | `str` | `"What would the Olympics look like..."` |
+| `temperature` | Controls the randomness/creativity of the output (0.0 for deterministic/greedy). | `float` | `0.2` |
+| `max_tokens` | The maximum number of tokens to generate (Hard Stop). | `int` | `100` |
+
+```python
+@dataclass(frozen=True) 
+class Config:
+    """
+    Centralised configuration for the token generator.
+    """
+    # Global toggle to enable/disable all [DEBUG] print statements
+    debug_mode: bool = False
+    checkpoint_path: str = "/workspace/gpt-oss-20B/gpt-oss-20b/original"
+    device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    prompt: str = "What would the Olympics look like if procrastination were a competitive sport?"
+    temperature: float = 0.2
+    max_tokens: int = 100
+```
+
+### Running Inference
+The model is initialised and run using the `main` function in the standalone script.
+
+```bash
+python inference.py
+```
+
+### Sample Run 1: Creative Text Generation
+
+```bash
+============================================================
+GPT-OSS-20B GENERATOR
+DEBUG MODE IS OFF
+============================================================
+
+[CONFIG]
+  Checkpoint: /workspace/gpt-oss-20B/gpt-oss-20b/original
+  Device: cuda
+  Prompt: Write a poem that rhymes about someone arguing with their alarm clock.
+  Temperature: 0.3
+  Max tokens: 200
+
+============================================================
+INITIALISATION (Weight Loading Check)
+============================================================
+✓ Model weights loaded in 3.49s
+Loading tokenizer...
+
+[TIMING] TokenGenerator initialisation complete: 3.65s
+
+============================================================
+TOKENISATION
+============================================================
+Prompt length: 14 tokens
+
+============================================================
+GENERATION
+============================================================
+Initialising KV caches...
+  - Cache size: 214 tokens
+  - Number of layers: 24
+  - KV heads: 8
+  - Head dim: 64
+✓ Caches Initialised in 0.00s
+Prompt length: 14 tokens
+Starting prefill phase (processing 14 tokens)...
+✓ Prefill complete in 0.84s
+Starting decoding phase (max 200 tokens)...
+
+[TIMING] Total generation: 8.75s
+
+============================================================
+FINAL OUTPUT
+============================================================
+Generated text: 
+
+In the morning light, a battle begins,
+A clash of wills, a fight that spins.
+The alarm clock, a relentless foe,
+Says, "Rise and shine, it's time to go."
+
+The sleepy soul, with eyes still closed,
+Whispers, "No, I need more repose."
+The alarm, with a shrill, urgent tone,
+Says, "Wake up, my friend, it's time to roam."
+
+The battle rages, a rhythmic dance,
+A tug-of-war, a fleeting trance.
+The alarm, with its persistent chime,
+Says, "Rise and shine, it's time to climb."
+
+The sleepy soul, with a stubborn grin,
+Says, "I won't be woken by your din."
+The alarm, with a stubborn insistence,
+Says, "Rise and shine, it's time for persistence."
+
+The battle continues, a never-ending fight,
+The alarm, with its relentless bite.
+The sleepy soul, with a stubborn stance,
+Says,
+Total tokens generated: 200
+```
+
+### Sample Run 2: Code Generation
+
+```bash
+============================================================
+GPT-OSS-20B GENERATOR
+DEBUG MODE IS OFF
+============================================================
+
+[CONFIG]
+  Checkpoint: /workspace/gpt-oss-20B/gpt-oss-20b/original
+  Device: cuda
+  Prompt: Write a python function that prints hello world
+  Temperature: 0.1
+  Max tokens: 100
+
+============================================================
+INITIALISATION (Weight Loading Check)
+============================================================
+✓ Model weights loaded in 3.52s
+Loading tokenizer...
+
+[TIMING] TokenGenerator initialisation complete: 3.67s
+
+============================================================
+TOKENISATION
+============================================================
+Prompt length: 8 tokens
+
+============================================================
+GENERATION
+============================================================
+Initialising KV caches...
+  - Cache size: 108 tokens
+  - Number of layers: 24
+  - KV heads: 8
+  - Head dim: 64
+✓ Caches Initialised in 0.00s
+Prompt length: 8 tokens
+Starting prefill phase (processing 8 tokens)...
+✓ Prefill complete in 0.75s
+Starting decoding phase (max 100 tokens)...
+
+[TIMING] Total generation: 4.73s
+
+============================================================
+FINAL OUTPUT
+============================================================
+Generated text: ."
+
+Sure! Here's a simple Python function that prints "Hello, world!" when called:
+
+def print_hello_world():
+    print("Hello, world!")
+
+# Call the function to see the output
+print_hello_world()
+
+This function, `print_hello_world`, uses the `print()` function to output the string "Hello, world!" to the console. When you run this script, it will display the message.
+
+Sure! Here's a simple Python function that
+Total tokens generated: 100
 ```
 
 ## 2. Model Architecture
