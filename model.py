@@ -7,6 +7,7 @@ import math
 import os
 import json
 
+from weights import Checkpoint
 
 @dataclass
 class ModelConfigs:
@@ -637,3 +638,26 @@ class Transformer(nn.Module):
         # (B, Seq_len, hidden_size) -> (B, Seq_len, vocab_size)
         x = self.unembedding(x)
         return x.float()
+    
+    @staticmethod
+    def from_checkpoint(path: str, device: str | torch.device = "cuda") -> "Transformer":
+        device = torch.device(device)
+
+        with open(os.path.join(path, "config.json"), "r") as f:
+            cfg = ModelConfigs(**json.load(f))
+
+        model = Transformer(cfg, device=device).to(device)
+        model.eval()
+
+        ckpt = Checkpoint(path, device)
+
+        with torch.no_grad():
+            for name, param in model.named_parameters():
+                t = ckpt.get(name)              # returns a dequantized BF16 tensor
+                if t.shape != param.shape:
+                    raise RuntimeError(
+                        f"shape mismatch for {name}: file {t.shape} vs model {param.shape}"
+                    )
+                param.copy_(t)
+
+        return model
