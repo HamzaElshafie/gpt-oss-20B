@@ -92,7 +92,9 @@ hf download openai/gpt-oss-20b \
 
 ```bash
 hf download openai/gpt-oss-20b \
-  --include "tokenizer.json,tokenizer_config.json,special_tokens_map.json" \
+  --include "tokenizer.json" \
+  --include "tokenizer_config.json" \
+  --include "special_tokens_map.json" \
   --local-dir gpt-oss-20b/
 ```
 
