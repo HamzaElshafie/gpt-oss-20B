@@ -67,6 +67,13 @@ source ~/miniconda3/bin/activate
 conda init --all
 ```
 
+Create and Activate Conda Environment
+
+```bash
+conda create -n gptoss python=3.12 -y
+conda activate gptoss
+```
+
 Install dependencies:
 
 ```bash
@@ -76,7 +83,7 @@ pip install -r requirements.txt
 ### Download the Original Checkpoint
 
 ```bash
-huggingface-cli download openai/gpt-oss-20b \
+hf download openai/gpt-oss-20b \
   --include "original/*" \
   --local-dir gpt-oss-20b/
 ```
@@ -84,7 +91,7 @@ huggingface-cli download openai/gpt-oss-20b \
 ### Download Tokenizer Files
 
 ```bash
-huggingface-cli download openai/gpt-oss-20b \
+hf download openai/gpt-oss-20b \
   --include "tokenizer.json,tokenizer_config.json,special_tokens_map.json" \
   --local-dir gpt-oss-20b/
 ```
