@@ -300,7 +300,7 @@ The self-attention mechanism is highly optimised for efficiency and context leng
 * Attention Bias: Each attention head includes a learned bias in the denominator of the softmax, similar to concepts like Attention Sinks. This feature allows the attention mechanism to selectively **pay no attention** to certain tokens, providing an additional learned control signal.
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/e7d20729-328b-444d-9e1a-5cb2d6997995" alt="Image 5" width="60%">
+  <img src="https://github.com/user-attachments/assets/92c81e58-50c2-4377-aea4-0aed740e7611" alt="Image 5" width="90%">
 </p>
 
 ### 2.2 Mixture-of-Experts (MoE)
@@ -310,11 +310,7 @@ The standard feed-forward network (FFN) is replaced with a Mixture-of-Experts bl
 * Selection: For both models, the **top-4 experts** are selected per token, and their outputs are weighted by the softmax of the router projection, calculated only over the selected experts.
 * Activation: The MoE blocks utilise the **gated SwiGLU** activation function. *(More details on the MoE mechanism will follow in a later section!)*
 
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/33b534e9-ad4f-4b07-9095-a6be6c19096e" alt="Image 5" width="70%">
-</p>
-
-As illustrated (figures from ["The Illustrated GPT-OSS"](https://newsletter.languagemodels.co/p/the-illustrated-gpt-oss), the architecture incorporates several state-of-the-art components, aligning closely with current high-performance LLMs while featuring key innovations:
+As illustrated, the architecture incorporates several state-of-the-art components, aligning closely with current high-performance LLMs while featuring key innovations:
 
 ## 3. Rotary Position Embedding (RoPE)
 Rotary Position Embedding (RoPE) is an effective position-encoding technique which was first introduced in [Su et al. 2021](https://arxiv.org/pdf/2104.09864). Due to its simplicity and effictivness has since become the de facto for modern LLMs including Llama 2, 3 [Grattafiori, Dubey, et al. 2024](https://arxiv.org/pdf/2407.21783), Mistral, Gemma-2 and other open source models. While the original method proved to be effective, models failed faced a crucial limitation of not being able to maintain quaility while processing sequences longer than their trained context. Other methods have been proposed which I am going to go through in this section until we reach the [YaRN](https://arxiv.org/pdf/2309.00071) extenstion which I use in this repo following OpenAI's original implementation 
