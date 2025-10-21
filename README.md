@@ -717,7 +717,7 @@ Instead, we cache K and V tensors in GPU memory:
 - During **decode**, each new token’s K and V are appended to the cache.  
 - Subsequent steps simply read from this cache rather than recomputing.  
 
-This transforms what would be *O(n²)* recomputation into *O(n)* memory reads, making generation feasible.
+This transforms what would be *O(n²)* recomputation into *O(n)* computations, making generation feasible.
 
 <p align="center">
 <img src="https://github.com/user-attachments/assets/756e2465-608f-4513-bfab-3c0854499e5c" alt="Image 10" width="50%">
