@@ -1,5 +1,5 @@
 # GPT-OSS-20B
-A PyTorch implementation of the [GPT-OSS-20B](https://arxiv.org/pdf/2508.10925) architecture focused on efficient inference. All components are coded from scratch: RoPE with YaRN, RMSNorm, SwiGLU with clamping and residual connection, Mixture-of-Experts (MoE), Self-Attention with learned sinks, banded attention, and GQA, and KV-cache.
+A PyTorch implementation of the [GPT-OSS-20B](https://arxiv.org/pdf/2508.10925) architecture. All components are coded from scratch: **RoPE with YaRN and NTK-by-parts scaling** for context scaling, **RMSNorm**, **SwiGLU** with clamping and residual connection, **Mixture-of-Experts (MoE)**, **Self-Attention**, optimised with **Grouped Query Attention (GQA)**, learned **sinks**, **banded (sliding window) attention** and support for **KV caching**.
 
 ## Contents
 
