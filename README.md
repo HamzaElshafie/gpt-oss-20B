@@ -813,7 +813,7 @@ I believe there is a lot of work to be done mainly around the inference componen
 
 1. Accurately measure Time to First Token (TTFT), Inter Token Latency (ITL), and Total Latency (E2EL).
 2. Experiment with different decoding strategies such as Top-P sampling, and Beam Search.
-3. Quantitatively analyse context generalisation: Measure **negative log perplexity** on a fixed known piece of text and plot perplexity against the context length to see how predictive accuracy behaves as the model generalizss over contexts larger than the pretrained window.
+3. Quantitatively analyse context generalisation: Measure **negative log perplexity** on a fixed known piece of text and plot perplexity against the context length to see how predictive accuracy behaves as the model generalises over contexts larger than the pretrained window.
 4. Replace the Pytorch attention implementation with flash attention v2 using Triton to decrease memory bottlneck of constantly loading tensors (specifically attention tensor) in and out of DRAM which I expect to increase throughput and improve the above mentioned metrics.
 4. Replace the PyTorch attention implementation with **Flash Attention v2** using **Triton** to decrease the memory bottleneck of constantly loading tensors (specifically the attention tensor & KV tensors) in and out of HBM/DRAM. I suspect this to significantly **increase throughput** and improve the above-mentioned metrics (TTFT, ITL, E2EL).
 6. Implement support for loading and running the model with **4-bit and 8-bit quantisation** to improve speed and reduce VRAM footprint.
