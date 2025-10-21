@@ -106,7 +106,7 @@ hf download openai/gpt-oss-20b \
 
 ## 1.2 Usage
 
-The inference process is controlled by the `Config` dataclass** and executed via the `inference.py` script.
+The inference process is controlled by the `Config` dataclass and executed via the `inference.py` script.
 
 ### Configuration 
 
