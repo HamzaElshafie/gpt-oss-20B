@@ -39,6 +39,8 @@ A PyTorch implementation of the [GPT-OSS-20B](https://arxiv.org/pdf/2508.10925) 
 &nbsp;&nbsp;&nbsp;&nbsp;5.4 [Grouped Query Attention (GQA)](#54-grouped-query-attention-gqa)  
 &nbsp;&nbsp;&nbsp;&nbsp;5.5 [Banded (Sliding Window) Attention](#55-banded-sliding-window-attention)  
 &nbsp;&nbsp;&nbsp;&nbsp;5.6 [Attention Sinks](#56-attention-sinks)
+6. [Future Work](#6-future-work)
+
 
 ## 1. Getting Started
 
@@ -808,5 +810,18 @@ Experiments demonstrating the effectiveness of this subtle enhancement can be se
 <p align="center">
 <img src="https://github.com/user-attachments/assets/38dfce22-a852-43ff-b34a-d3587124cef6" alt="Image 10" width="80%">
 </p>
+
+## 6. Future Work
+
+I believe there is a lot of work to be done mainly around the inference component.
+
+1. Accurately measure Time to First Token (TTFT), Inter Token Latency (ITL), and Total Latency (E2EL).
+2. Experiment with different decoding strategies such as Top-P sampling, and Beam Search.
+3. Quantitatively analyse context generalisation: Measure **negative log perplexity** on a fixed known piece of text and plot perplexity against the context length to see how predictive accuracy behaves as the model generalizss over contexts larger than the pretrained window.
+4. Replace the Pytorch attention implementation with flash attention v2 using Triton to decrease memory bottlneck of constantly loading tensors (specifically attention tensor) in and out of DRAM which I expect to increase throughput and improve the above mentioned metrics.
+4. Replace the PyTorch attention implementation with **Flash Attention v2** using **Triton** to decrease the memory bottleneck of constantly loading tensors (specifically the attention tensor & KV tensors) in and out of HBM/DRAM. I suspect this to significantly **increase throughput** and improve the above-mentioned metrics (TTFT, ITL, E2EL).
+6. Implement support for loading and running the model with **4-bit and 8-bit quantisation** to improve speed and reduce VRAM footprint.
+
+
 
 
